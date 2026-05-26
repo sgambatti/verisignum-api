@@ -4,12 +4,22 @@ import c2pa
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from dotenv import load_dotenv
+from fastapi.middleware.cors import CORSMiddleware
 
 # Carrega variáveis de ambiente (onde guardaremos o caminho das chaves)
 load_dotenv()
 
-app = FastAPI(title="Verisignum API Oficial")
+app = FastAPI(title="Verisignum Shield API", version="1.0.0")
 
+# --- ADICIONE ESTE BLOCO AQUI ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Em produção, trocaremos o "*" pelo link oficial do seu Dashboard
+    allow_credentials=True,
+    allow_methods=["*"], # Permite POST, GET, etc.
+    allow_headers=["*"],
+)
+# ---------------------------------
 @app.post("/v1/shield/sign")
 async def assinar_midia(
     file: UploadFile = File(...),
