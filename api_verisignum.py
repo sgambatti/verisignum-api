@@ -179,15 +179,22 @@ async def assinar_midia(
                 }
         
         # 5. Executa a injeção criptográfica
-        if isinstance(signer, dict):
-            c2pa.sign_file(
-                caminho_entrada, 
-                caminho_saida, 
-                json.dumps(manifesto_json), 
-                signer_info={"cert": cert_path, "key": key_path, "alg": "es256"}
-            )
-        else:
-            c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_json), signer)
+        data_dir = UPLOAD_DIR # Define o diretório de dados exigido pela versão mais recente do SDK
+        try:
+            # Tentativa primária: passa o 5º argumento 'data_dir' obrigatório
+            c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_json), signer, data_dir)
+        except Exception:
+            # Fallback para variações de assinatura em versões legadas do SDK
+            if isinstance(signer, dict):
+                c2pa.sign_file(
+                    caminho_entrada, 
+                    caminho_saida, 
+                    json.dumps(manifesto_json), 
+                    signer_info={"cert": cert_path, "key": key_path, "alg": "es256"},
+                    data_dir=data_dir
+                )
+            else:
+                c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_json), signer)
 
         # 6. Retorna o ficheiro assinado de volta para o Dashboard do usuário
         return FileResponse(
