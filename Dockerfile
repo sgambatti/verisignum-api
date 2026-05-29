@@ -12,11 +12,11 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY src/ ./src/
+COPY api_verisignum.py .
 COPY . .
 
 # Expose port (adjust if needed)
 EXPOSE 8000
 
 # Run the application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api_verisignum:app", "--host", "0.0.0.0", "--port", "8000"]
