@@ -1,43 +1,42 @@
+from fastapi import FastAPI, UploadFile, File
 import c2pa
 import json
-from fastapi import FastAPI
+import os
+
 app = FastAPI()
 
-# 1. Certifique-se de que o certificado e chave são válidos
-# Se não tem um par de chaves, o c2pa-python pode gerar um "fast-track"
-def assinar_com_validacao(input_path, output_path, author_name):
-    # O C2PA espera um dicionário de configuração de manifesto robusto
+@app.get("/")
+def read_root():
+    return {"status": "online", "message": "API Verisignum pronta para assinar."}
+
+@app.post("/v1/shield/sign")
+async def sign_file(file: UploadFile = File(...)):
+    input_path = f"temp_{file.filename}"
+    output_path = f"signed_{file.filename}"
+    
+    with open(input_path, "wb") as buffer:
+        buffer.write(await file.read())
+    
+    # Configuração do Manifesto C2PA
     manifest_config = {
         "claim_generator": "Verisignum_Shield_v1",
         "assertions": [
             {
                 "label": "stds.schema-org.CreativeWork",
                 "data": {
-                    "author": [{"name": author_name}],
                     "@context": "https://schema.org",
-                    "@type": "CreativeWork"
+                    "@type": "CreativeWork",
+                    "author": [{"name": "Verisignum"}]
                 }
             }
         ]
     }
     
-    # 2. Utilizar o create_signer conforme a versão mais recente do SDK
-    # Nota: Certifique-se de que o ficheiro de certificado (.pem) 
-    # e a chave (.pem) estão acessíveis no servidor.
+    # Assinatura (Simulada para ambiente de teste sem certificados .pem)
     try:
-        signer = c2pa.create_signer({
-            "alg": "es256",
-            "sign_cert": "certs/minha_chave_publica.pem",
-            "private_key": "certs/minha_chave_privada.pem"
-        })
-        
-        c2pa.sign_file(
-            input_path, 
-            output_path, 
-            json.dumps(manifest_config), 
-            signer
-        )
-        return True
+        # Nota: Em produção, você precisará configurar os certificados reais aqui.
+        # Por enquanto, usamos a lógica de assinatura básica do c2pa.
+        c2pa.sign_file(input_path, output_path, json.dumps(manifest_config))
+        return {"message": "Arquivo assinado com sucesso", "filename": output_path}
     except Exception as e:
-        print(f"Erro crítico na assinatura C2PA: {e}")
-        return False
+        return {"error": str(e)}
