@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File
-import c2pa
+import subprocess
 import json
 import os
 
@@ -32,11 +32,22 @@ async def sign_file(file: UploadFile = File(...)):
         ]
     }
     
-    # Assinatura (Simulada para ambiente de teste sem certificados .pem)
+    # Assinatura usando c2pa CLI tool
     try:
-        # Nota: Em produção, você precisará configurar os certificados reais aqui.
-        # Por enquanto, usamos a lógica de assinatura básica do c2pa.
-        c2pa.sign_file(input_path, output_path, json.dumps(manifest_config))
-        return {"message": "Arquivo assinado com sucesso", "filename": output_path}
+        manifest_json = json.dumps(manifest_config)
+        
+        # Call c2patool CLI
+        result = subprocess.run([
+            "c2patool",
+            "sign",
+            input_path,
+            "-o", output_path,
+            "-m", manifest_json
+        ], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return {"message": "Arquivo assinado com sucesso", "filename": output_path}
+        else:
+            return {"error": f"C2PA signing failed: {result.stderr}"}
     except Exception as e:
         return {"error": str(e)}
