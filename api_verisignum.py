@@ -1,5 +1,7 @@
 import c2pa
 import json
+from fastapi import FastAPI
+app = FastAPI()
 
 # 1. Certifique-se de que o certificado e chave são válidos
 # Se não tem um par de chaves, o c2pa-python pode gerar um "fast-track"
