@@ -2,14 +2,13 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies required for py3exiv2 and pykcs11
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    libexiv2-dev \
-    libboost-python-dev \
-    libpcsclite-dev \
-    pkg-config \
+    curl \
     && rm -rf /var/lib/apt/lists/*
+
+# Install c2pa CLI from pre-built binary
+RUN curl -L https://github.com/contentauthenticity/c2pa-rs/releases/download/c2pa-0.32.0/c2pa-linux-x86_64.tar.gz | tar xz -C /usr/local/bin/
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
