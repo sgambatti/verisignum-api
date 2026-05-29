@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import subprocess
 import json
 import os
@@ -9,7 +10,7 @@ app = FastAPI()
 # Configuração de CORS: Permite que o seu frontend fale com a API
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Em produção, substitua pelo URL do seu frontend
+    allow_origins=["*"],  # Em produção, substitua pelos URLs do seu frontend
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -59,13 +60,19 @@ async def sign_file(file: UploadFile = File(...)):
         if result.returncode != 0:
             print(f"Erro no c2patool: {result.stderr}")
             raise HTTPException(status_code=500, detail=f"Erro c2patool: {result.stderr}")
-            
-        return {"message": "Ficheiro assinado com sucesso", "filename": output_path}
+        
+        # Retornar o arquivo assinado
+        return FileResponse(output_path, filename=output_path, media_type="application/octet-stream")
 
+    except FileNotFoundError as e:
+        print(f"Arquivo não encontrado: {str(e)}")
+        raise HTTPException(status_code=500, detail="c2patool não encontrado. Verifique a instalação.")
     except Exception as e:
         print(f"Erro interno: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        # Limpeza básica
-        if os.path.exists(input_path): os.remove(input_path)
-        if os.path.exists("manifest.json"): os.remove("manifest.json")
+        # Limpeza
+        if os.path.exists(input_path): 
+            os.remove(input_path)
+        if os.path.exists("manifest.json"): 
+            os.remove("manifest.json")
