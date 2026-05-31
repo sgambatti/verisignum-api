@@ -13,7 +13,7 @@ from cryptography.hazmat.backends import default_backend
 
 app = FastAPI(title="Verisignum Shield API")
 
-# Configuração CORS para permitir a comunicação com o front-end
+# Configuração CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,7 +22,7 @@ app.add_middleware(
 )
 
 def cleanup_files(*paths):
-    """Apaga os ficheiros temporários para não sobrecarregar o servidor"""
+    """Remove ficheiros temporários após o processamento"""
     for path in paths:
         try:
             if os.path.exists(path):
@@ -30,11 +30,12 @@ def cleanup_files(*paths):
         except:
             pass
 
-def get_or_create_certs():
-    """Gera o certificado e cria uma 'cadeia' artificial para satisfazer o COSE"""
+def get_certs():
+    """Gera um certificado self-signed formatado estritamente para o parser COSE do c2patool"""
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
+    # Gerar nova chave apenas se não existir para poupar processamento
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
         
@@ -44,34 +45,29 @@ def get_or_create_certs():
             x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield"),
         ])
         
+        # O truque principal: ca=True é frequentemente exigido pelo parser para âncoras de confiança auto-assinadas
         cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
             private_key.public_key()
-        ).serial_number(x509.random_serial_number()).not_valid_before(
+        ).serial_number(
+            x509.random_serial_number()
+        ).not_valid_before(
             datetime.utcnow() - timedelta(minutes=10)
-        ).not_valid_after(datetime.utcnow() + timedelta(days=365)
+        ).not_valid_after(
+            datetime.utcnow() + timedelta(days=365)
         ).add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True,
+            x509.BasicConstraints(ca=True, path_length=None), critical=True,
         ).sign(private_key, hashes.SHA256(), default_backend())
         
-        # Chave privada
-        key_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.TraditionalOpenSSL,
-            encryption_algorithm=serialization.NoEncryption()
-        )
-        
-        # Certificado
-        cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
-        
-        # TRUQUE: O C2PA CLI às vezes exige uma cadeia. 
-        # Escrevemos o certificado seguido dele mesmo para forçar a estrutura de cadeia.
-        with open(cert_path, "wb") as f:
-            f.write(cert_bytes)
-            f.write(b"\n")
-            f.write(cert_bytes) # Duplicação para simular uma cadeia de confiança
-            
+        # Escrita estrita em binário (wb) sem modificações de string
         with open(key_path, "wb") as f:
-            f.write(key_bytes)
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+            
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
             
     return cert_path, key_path
 
@@ -86,16 +82,19 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    input_path = os.path.join("/tmp", file.filename)
-    output_path = os.path.join("/tmp", f"signed_{file.filename}")
-    manifest_path = os.path.join("/tmp", f"manifest_{file.filename}.json")
-    cert_path, key_path = get_or_create_certs() # Sua função que gera o .pem
+    input_path = f"/tmp/{file.filename}"
+    output_path = f"/tmp/signed_{file.filename}"
+    manifest_path = f"/tmp/manifest_{file.filename}.json"
     
     try:
+        # 1. Guardar a média localmente
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # O manifesto deve conter os caminhos para o c2patool ler as chaves
+        # 2. Gerar/Obter os certificados formatados
+        cert_path, key_path = get_certs()
+        
+        # 3. Construir o Manifesto com caminhos locais
         manifest_config = {
             "claim_generator": "Verisignum_Shield/3.0",
             "private_key": key_path,
@@ -116,22 +115,29 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # O comando que obriga o c2patool a ler as chaves do manifesto
-        # Usamos -s para especificar o arquivo de chaves dentro do JSON
-        print(f"DEBUG: Cert content: {open(cert_path, 'r').read()}")
-	cmd = [
-            "c2patool", input_path, 
-            "-o", output_path, 
-            "-m", manifest_path, 
-            "-f"
-        ]
-        
+        # 4. Executar o c2patool passando o manifesto que contém os caminhos das chaves
+        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
-            # Se o erro COSE persistir, é o formato do seu cert_path
-            raise Exception(f"Erro C2PA: {result.stderr}")
+            print(f"DEBUG STDOUT: {result.stdout}")
+            print(f"DEBUG STDERR: {result.stderr}")
+            raise Exception(f"Motor C2PA falhou: {result.stderr}")
             
-        return FileResponse(path=output_path, media_type=file.content_type, filename=f"signed_{file.filename}")
+        if not os.path.exists(output_path):
+            raise Exception("O comando c2patool foi executado, mas o ficheiro de saída não foi gerado.")
+        
+        # 5. Agendar limpeza e devolver o ficheiro
+        background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
+        
+        return FileResponse(
+            path=output_path, 
+            media_type=file.content_type, 
+            filename=f"signed_{file.filename}"
+        )
+
     except Exception as e:
+        import traceback
+        traceback.print_exc()
+        background_tasks.add_task(cleanup_files, input_path, manifest_path)
         raise HTTPException(status_code=500, detail=str(e))
