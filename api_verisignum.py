@@ -31,7 +31,7 @@ def cleanup_files(*paths):
             pass
 
 def get_or_create_certs():
-    """Gera certificados compatíveis com o padrão COSE da Adobe"""
+    """Gera certificados compatíveis com o padrão COSE da Adobe (PEM estrito)"""
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
@@ -54,24 +54,27 @@ def get_or_create_certs():
         ).serial_number(
             x509.random_serial_number()
         ).not_valid_before(
-            datetime.utcnow() - timedelta(minutes=1) # Margem de erro de clock
+            datetime.utcnow() - timedelta(minutes=10)
         ).not_valid_after(
             datetime.utcnow() + timedelta(days=365)
         ).add_extension(
             x509.BasicConstraints(ca=False, path_length=None), critical=True,
         ).sign(private_key, hashes.SHA256(), default_backend())
         
-        # Escrever chave privada (Traditional OpenSSL)
+        # Exportação estrita para PEM sem cabeçalhos adicionais
+        key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
+        
+        # Escrita explícita em binário
         with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-            
-        # Escrever certificado (PEM puro)
+            f.write(key_bytes)
         with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            f.write(cert_bytes)
             
     return cert_path, key_path
 
