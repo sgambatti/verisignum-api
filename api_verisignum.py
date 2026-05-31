@@ -12,7 +12,7 @@ from cryptography import x509
 
 app = FastAPI(title="Verisignum Shield API")
 
-# Configuração CORS (Garante que o Front-end consiga comunicar)
+# Configuração CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,52 +21,46 @@ app.add_middleware(
 )
 
 def cleanup_files(input_path: str, output_path: str):
-    """Apaga os ficheiros temporários APÓS o cliente descarregar o arquivo para não encher o servidor"""
+    """Apaga os ficheiros temporários de mídia"""
     try:
         if os.path.exists(input_path): os.remove(input_path)
         if os.path.exists(output_path): os.remove(output_path)
     except:
         pass
 
-def get_or_create_certs():
-    """Gera certificados PKI Criptográficos válidos dinamicamente"""
-    cert_path = "/tmp/vsg_cert.pem"
-    key_path = "/tmp/vsg_key.pem"
+def get_certs_in_memory():
+    """Gera certificados PKI válidos diretamente na Memória (RAM)"""
+    private_key = ec.generate_private_key(ec.SECP256R1())
     
-    if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        print("A gerar novos certificados criptográficos em tempo real...")
-        private_key = ec.generate_private_key(ec.SECP256R1())
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
+        x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
+    ])
+    
+    cert = x509.CertificateBuilder().subject_name(
+        subject
+    ).issuer_name(
+        issuer
+    ).public_key(
+        private_key.public_key()
+    ).serial_number(
+        x509.random_serial_number()
+    ).not_valid_before(
+        datetime.utcnow()
+    ).not_valid_after(
+        datetime.utcnow() + timedelta(days=365)
+    ).sign(private_key, hashes.SHA256())
+    
+    # Extrai as chaves em formato texto seguro
+    key_pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption()
+    ).decode('utf-8')
+    
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf-8')
         
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
-            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
-        ])
-        
-        cert = x509.CertificateBuilder().subject_name(
-            subject
-        ).issuer_name(
-            issuer
-        ).public_key(
-            private_key.public_key()
-        ).serial_number(
-            x509.random_serial_number()
-        ).not_valid_before(
-            datetime.utcnow()
-        ).not_valid_after(
-            datetime.utcnow() + timedelta(days=365)
-        ).sign(private_key, hashes.SHA256())
-        
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-            
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
-            
-    return cert_path, key_path
+    return cert_pem, key_pem
 
 @app.get("/")
 def read_root():
@@ -83,15 +77,22 @@ async def sign_file(
     output_path = os.path.join("/tmp", f"signed_{file.filename}")
     
     try:
-        # 1. Guardar o ficheiro carregado temporariamente
+        # 1. Guardar a mídia localmente (obrigatório para manipulação)
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Obter ou gerar certificados
-        cert_path, key_path = get_or_create_certs()
+        # 2. Obter os certificados da memória
+        cert_pem, key_pem = get_certs_in_memory()
         
-        # 3. Inicializar o Motor C2PA nativo (sem depender de executáveis)
-        signer = c2pa.Signer.from_pem(cert_path, key_path, "es256")
+        # 3. Configurar o Signer usando a nova API do c2pa-python
+        sign_config = {
+            "alg": "es256",
+            "sign_cert": cert_pem,
+            "private_key": key_pem
+        }
+        
+        # Cria a instância do signer convertendo o config para bytes JSON
+        signer = c2pa.create_signer(json.dumps(sign_config).encode('utf-8'))
         
         # 4. Construir o Manifesto C2PA
         manifest_config = {
@@ -109,13 +110,16 @@ async def sign_file(
             ]
         }
         
-        # 5. Assinar o arquivo
-        c2pa.sign_file(input_path, output_path, json.dumps(manifest_config), signer)
+        # O c2pa-python exige que o manifesto seja passado como bytes
+        manifest_bytes = json.dumps(manifest_config).encode('utf-8')
         
-        # 6. Agendar a limpeza do servidor para libertar espaço após o envio
+        # 5. Assinar fisicamente a imagem/vídeo
+        c2pa.sign_file(input_path, output_path, manifest_bytes, signer)
+        
+        # 6. Limpeza agendada do ficheiro original
         background_tasks.add_task(cleanup_files, input_path, output_path)
         
-        # 7. Devolver o ficheiro real assinado ao utilizador
+        # 7. Devolver ficheiro assinado com sucesso!
         return FileResponse(
             path=output_path,
             media_type=file.content_type,
