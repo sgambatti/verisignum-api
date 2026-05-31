@@ -1,10 +1,10 @@
 import os
 import json
+import subprocess
 from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import c2pa
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.x509.oid import NameOID
@@ -21,62 +21,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def cleanup_files(input_path: str, output_path: str):
-    """Apaga os ficheiros temporários de média após o envio"""
-    try:
-        if os.path.exists(input_path): os.remove(input_path)
-        if os.path.exists(output_path): os.remove(output_path)
-    except:
-        pass
+def cleanup_files(*paths):
+    """Apaga os ficheiros temporários para não sobrecarregar o servidor"""
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except:
+            pass
 
 def get_or_create_certs():
-    """Tenta usar as chaves do render.yaml; se falhar, gera na memória RAM"""
-    render_cert = os.getenv("VERISIGNUM_CERT_PATH", "/etc/secrets/cert.pem")
-    render_key = os.getenv("VERISIGNUM_KEY_PATH", "/etc/secrets/key.pem")
+    """Gera os certificados e guarda no disco para o motor da Adobe utilizar"""
+    cert_path = "/tmp/vsg_cert.pem"
+    key_path = "/tmp/vsg_key.pem"
     
-    # Se você configurou os Secret Files no Render, ele usa as suas chaves!
-    if os.path.exists(render_cert) and os.path.exists(render_key):
-        print("INFO: Utilizando certificados oficiais dos Secret Files do Render.")
-        with open(render_cert, "rb") as f:
-            cert_pem = f.read()
-        with open(render_key, "rb") as f:
-            key_pem = f.read()
+    if not os.path.exists(cert_path) or not os.path.exists(key_path):
+        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
+            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
+        ])
+        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+            private_key.public_key()
+        ).serial_number(x509.random_serial_number()).not_valid_before(
+            datetime.utcnow()
+        ).not_valid_after(datetime.utcnow() + timedelta(days=365)).sign(private_key, hashes.SHA256(), default_backend())
         
-        # Carrega a chave privada para um objeto de criptografia do Python
-        private_key = serialization.load_pem_private_key(
-            key_pem, password=None, backend=default_backend()
-        )
-        return cert_pem, private_key
-
-    # Caso contrário, não trava! Gera chaves seguras temporárias na RAM
-    print("INFO: Secrets não encontrados. Gerando certificados criptográficos na RAM...")
-    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-    
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
-        x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
-    ])
-    
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        private_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.utcnow()
-    ).not_valid_after(
-        datetime.utcnow() + timedelta(days=365)
-    ).sign(private_key, hashes.SHA256(), default_backend())
-    
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
-    return cert_pem, private_key
+        with open(key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.TraditionalOpenSSL,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            
+    return cert_path, key_path
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum Nativa Python operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Docker CLI) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -87,26 +71,21 @@ async def sign_file(
 ):
     input_path = os.path.join("/tmp", file.filename)
     output_path = os.path.join("/tmp", f"signed_{file.filename}")
+    manifest_path = os.path.join("/tmp", f"manifest_{file.filename}.json")
     
     try:
         # 1. Guardar a média localmente
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Obter os certificados (dos Segredos do Render ou da RAM)
-        cert_pem_bytes, private_key = get_or_create_certs()
+        # 2. Obter os certificados
+        cert_path, key_path = get_or_create_certs()
         
-        # 3. A SOLUÇÃO: Criar o "Callback" que o C2PA exige
-        # O C2PA pede uma função que execute a assinatura, e não o texto da chave.
-        def sign_callback(data: bytes) -> bytes:
-            return private_key.sign(data, ec.ECDSA(hashes.SHA256()))
-        
-        # 4. Inicializar o Signer com os 3 argumentos: Callback, Algoritmo e Certificado
-        signer = c2pa.create_signer(sign_callback, "es256", cert_pem_bytes)
-        
-        # 5. Construir o Manifesto C2PA
+        # 3. Construir o Manifesto exato que o Motor C2PA da Adobe exige
         manifest_config = {
             "claim_generator": "Verisignum_Shield/3.0",
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -120,14 +99,19 @@ async def sign_file(
             ]
         }
         
-        # 6. Assinar fisicamente a imagem
-        manifest_bytes = json.dumps(manifest_config).encode('utf-8')
-        c2pa.sign_file(input_path, output_path, manifest_bytes, signer)
+        with open(manifest_path, "w") as f:
+            json.dump(manifest_config, f)
+            
+        # 4. A MÁGICA: Executa o motor oficial CLI em vez da biblioteca Python instável
+        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
-        # 7. Limpeza agendada do ficheiro original
-        background_tasks.add_task(cleanup_files, input_path, output_path)
+        if result.returncode != 0:
+            raise Exception(f"Erro no Motor C2PA: {result.stderr}")
         
-        # 8. Devolver ficheiro assinado com sucesso!
+        # 5. Agendar limpeza e devolver ficheiro
+        background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
+        
         return FileResponse(
             path=output_path,
             media_type=file.content_type,
@@ -136,5 +120,6 @@ async def sign_file(
 
     except Exception as e:
         import traceback
-        traceback.print_exc() # Isso envia o erro completo para os Logs do Render
+        traceback.print_exc()
+        background_tasks.add_task(cleanup_files, input_path, manifest_path)
         raise HTTPException(status_code=500, detail=str(e))
