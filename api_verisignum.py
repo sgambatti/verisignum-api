@@ -89,16 +89,13 @@ async def sign_file(
     input_path = os.path.join("/tmp", file.filename)
     output_path = os.path.join("/tmp", f"signed_{file.filename}")
     manifest_path = os.path.join("/tmp", f"manifest_{file.filename}.json")
+    cert_path, key_path = get_or_create_certs() # Sua função que gera o .pem
     
     try:
-        # 1. Guardar a média localmente
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Obter os certificados
-        cert_path, key_path = get_or_create_certs()
-        
-        # 3. Construir o Manifesto exato que o Motor C2PA da Adobe exige
+        # O manifesto deve conter os caminhos para o c2patool ler as chaves
         manifest_config = {
             "claim_generator": "Verisignum_Shield/3.0",
             "private_key": key_path,
@@ -119,24 +116,22 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. A MÁGICA: Executa o motor oficial CLI em vez da biblioteca Python instável
-        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
+        # O comando que obriga o c2patool a ler as chaves do manifesto
+        # Usamos -s para especificar o arquivo de chaves dentro do JSON
+        print(f"DEBUG: Cert content: {open(cert_path, 'r').read()}")
+	cmd = [
+            "c2patool", input_path, 
+            "-o", output_path, 
+            "-m", manifest_path, 
+            "-f"
+        ]
+        
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
-            raise Exception(f"Erro no Motor C2PA: {result.stderr}")
-        
-        # 5. Agendar limpeza e devolver ficheiro
-        background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
-        
-        return FileResponse(
-            path=output_path,
-            media_type=file.content_type,
-            filename=f"signed_{file.filename}"
-        )
-
+            # Se o erro COSE persistir, é o formato do seu cert_path
+            raise Exception(f"Erro C2PA: {result.stderr}")
+            
+        return FileResponse(path=output_path, media_type=file.content_type, filename=f"signed_{file.filename}")
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        background_tasks.add_task(cleanup_files, input_path, manifest_path)
         raise HTTPException(status_code=500, detail=str(e))
