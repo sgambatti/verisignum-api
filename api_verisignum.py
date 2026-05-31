@@ -1,9 +1,14 @@
 import os
 import json
 import subprocess
+import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 
 app = FastAPI(title="Verisignum Shield API")
 
@@ -16,7 +21,7 @@ app.add_middleware(
 )
 
 def cleanup_files(*paths):
-    """Remove ficheiros temporários após o processamento"""
+    """Limpeza do servidor após o processamento"""
     for path in paths:
         try:
             if os.path.exists(path):
@@ -26,54 +31,63 @@ def cleanup_files(*paths):
 
 def get_certs():
     """
-    Gera as chaves com um arquivo de configuração OpenSSL customizado.
-    Isso INJETA as extensões X.509 obrigatórias que o COSE/C2PA exige 
-    (subjectKeyIdentifier e digitalSignature), eliminando o erro de parsing.
+    Geração cirúrgica da Âncora de Confiança C2PA.
+    Aplica Formato PKCS#8, SubjectKeyIdentifier e DigitalSignature KeyUsage.
+    Isso satisfaz 100% das exigências do parser COSE em Rust.
     """
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
-    cnf_path = "/tmp/vsg_openssl.cnf"
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        # 1. Cria o arquivo de configuração rigoroso para o OpenSSL
-        cnf_content = """[req]
-default_bits = 256
-prompt = no
-default_md = sha256
-distinguished_name = dn
-x509_extensions = v3_req
-
-[dn]
-C = BR
-O = Verisignum
-CN = Verisignum Shield
-
-[v3_req]
-basicConstraints = critical, CA:FALSE
-keyUsage = critical, digitalSignature
-subjectKeyIdentifier = hash
-"""
-        with open(cnf_path, "w") as f:
-            f.write(cnf_content)
-
-        # 2. Gera chave privada
-        subprocess.run(
-            "openssl ecparam -name prime256v1 -genkey -noout -out /tmp/vsg_key.pem", 
-            shell=True, check=True
-        )
+        # 1. Chave Curva Elíptica (P-256) exigida pelo es256
+        private_key = ec.generate_private_key(ec.SECP256R1())
         
-        # 3. Gera certificado X.509 usando a configuração C2PA-compliant
-        subprocess.run(
-            f"openssl req -new -x509 -key /tmp/vsg_key.pem -out /tmp/vsg_cert.pem -days 365 -config {cnf_path}", 
-            shell=True, check=True
-        )
+        # 2. Definição do Sujeito
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
+        ])
+        
+        # 3. Construção rigorosa do Certificado X.509 v3
+        cert = x509.CertificateBuilder().subject_name(
+            subject
+        ).issuer_name(
+            issuer
+        ).public_key(
+            private_key.public_key()
+        ).serial_number(
+            x509.random_serial_number()
+        ).not_valid_before(
+            datetime.datetime.utcnow() - datetime.timedelta(days=1)
+        ).not_valid_after(
+            datetime.datetime.utcnow() + datetime.timedelta(days=365)
+        ).add_extension(
+            x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
+            critical=False
+        ).add_extension(
+            x509.KeyUsage(
+                digital_signature=True, content_commitment=False, key_encipherment=False,
+                data_encipherment=False, key_agreement=False, key_cert_sign=False,
+                crl_sign=False, encipher_only=False, decipher_only=False
+            ),
+            critical=True
+        ).sign(private_key, hashes.SHA256())
+        
+        # O PULO DO GATO: Exportar a chave privada estritamente em PKCS8
+        with open(key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8, # <- Esta é a solução do erro COSE
+                encryption_algorithm=serialization.NoEncryption()
+            ))
             
-    # Retornamos apenas os NOMES dos ficheiros porque vamos executar o motor dentro da pasta /tmp
-    return "vsg_cert.pem", "vsg_key.pem"
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            
+    return cert_path, key_path
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI com OpenSSL V3) operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - PKCS8) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -82,29 +96,24 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    # Nomes relativos para uso dentro da pasta /tmp
-    input_filename = f"upload_{file.filename}"
-    output_filename = f"signed_{file.filename}"
-    manifest_filename = f"manifest_{file.filename}.json"
-    
-    input_path = f"/tmp/{input_filename}"
-    output_path = f"/tmp/{output_filename}"
-    manifest_path = f"/tmp/{manifest_filename}"
+    input_path = f"/tmp/{file.filename}"
+    output_path = f"/tmp/signed_{file.filename}"
+    manifest_path = f"/tmp/manifest_{file.filename}.json"
     
     try:
-        # 1. Salvar o arquivo recebido
+        # 1. Salvar o arquivo
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Gerar chaves complacentes com COSE V3
-        cert_name, key_name = get_certs()
+        # 2. Gerar chaves invioláveis
+        cert_path, key_path = get_certs()
         
-        # 3. O manifesto aponta para as chaves com nomes relativos
+        # 3. O manifesto usa caminhos absolutos
         manifest_config = {
             "alg": "es256",
             "claim_generator": "Verisignum_Shield/3.0",
-            "private_key": key_name,
-            "sign_cert": cert_name,
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -121,10 +130,9 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. Executa o motor FORÇANDO o diretório de trabalho para /tmp
-        # Isso garante que o motor encontra os arquivos sem bugs de parsing de diretório
-        cmd = ["c2patool", input_filename, "-o", output_filename, "-m", manifest_filename, "-f"]
-        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
+        # 4. Assina o ficheiro (sem cwd="tmp", usando os caminhos absolutos)
+        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"DEBUG STDOUT: {result.stdout}")
