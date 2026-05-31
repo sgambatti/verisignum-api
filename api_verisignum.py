@@ -9,10 +9,11 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.x509.oid import NameOID
 from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 app = FastAPI(title="Verisignum Shield API")
 
-# Configuração CORS
+# Configuração CORS para permitir a comunicação com o front-end
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,16 +22,35 @@ app.add_middleware(
 )
 
 def cleanup_files(input_path: str, output_path: str):
-    """Apaga os ficheiros temporários de mídia"""
+    """Apaga os ficheiros temporários de média após o envio"""
     try:
         if os.path.exists(input_path): os.remove(input_path)
         if os.path.exists(output_path): os.remove(output_path)
     except:
         pass
 
-def get_certs_in_memory():
-    """Gera certificados PKI válidos diretamente na Memória (RAM)"""
-    private_key = ec.generate_private_key(ec.SECP256R1())
+def get_or_create_certs():
+    """Tenta usar as chaves do render.yaml; se falhar, gera na memória RAM"""
+    render_cert = os.getenv("VERISIGNUM_CERT_PATH", "/etc/secrets/cert.pem")
+    render_key = os.getenv("VERISIGNUM_KEY_PATH", "/etc/secrets/key.pem")
+    
+    # Se você configurou os Secret Files no Render, ele usa as suas chaves!
+    if os.path.exists(render_cert) and os.path.exists(render_key):
+        print("INFO: Utilizando certificados oficiais dos Secret Files do Render.")
+        with open(render_cert, "rb") as f:
+            cert_pem = f.read()
+        with open(render_key, "rb") as f:
+            key_pem = f.read()
+        
+        # Carrega a chave privada para um objeto de criptografia do Python
+        private_key = serialization.load_pem_private_key(
+            key_pem, password=None, backend=default_backend()
+        )
+        return cert_pem, private_key
+
+    # Caso contrário, não trava! Gera chaves seguras temporárias na RAM
+    print("INFO: Secrets não encontrados. Gerando certificados criptográficos na RAM...")
+    private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
     
     subject = issuer = x509.Name([
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
@@ -49,22 +69,14 @@ def get_certs_in_memory():
         datetime.utcnow()
     ).not_valid_after(
         datetime.utcnow() + timedelta(days=365)
-    ).sign(private_key, hashes.SHA256())
+    ).sign(private_key, hashes.SHA256(), default_backend())
     
-    # Extrai as chaves em formato texto seguro
-    key_pem = private_key.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.TraditionalOpenSSL,
-        encryption_algorithm=serialization.NoEncryption()
-    ).decode('utf-8')
-    
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode('utf-8')
-        
-    return cert_pem, key_pem
+    cert_pem = cert.public_bytes(serialization.Encoding.PEM)
+    return cert_pem, private_key
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum 100% Nativa Python operacional."}
+    return {"status": "online", "message": "API Verisignum Nativa Python operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -77,24 +89,22 @@ async def sign_file(
     output_path = os.path.join("/tmp", f"signed_{file.filename}")
     
     try:
-        # 1. Guardar a mídia localmente (obrigatório para manipulação)
+        # 1. Guardar a média localmente
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Obter os certificados da memória
-        cert_pem, key_pem = get_certs_in_memory()
+        # 2. Obter os certificados (dos Segredos do Render ou da RAM)
+        cert_pem_bytes, private_key = get_or_create_certs()
         
-        # 3. Configurar o Signer usando a nova API do c2pa-python
-        sign_config = {
-            "alg": "es256",
-            "sign_cert": cert_pem,
-            "private_key": key_pem
-        }
+        # 3. A SOLUÇÃO: Criar o "Callback" que o C2PA exige
+        # O C2PA pede uma função que execute a assinatura, e não o texto da chave.
+        def sign_callback(data: bytes) -> bytes:
+            return private_key.sign(data, ec.ECDSA(hashes.SHA256()))
         
-        # Cria a instância do signer convertendo o config para bytes JSON
-        signer = c2pa.create_signer(json.dumps(sign_config).encode('utf-8'))
+        # 4. Inicializar o Signer com os 3 argumentos: Callback, Algoritmo e Certificado
+        signer = c2pa.create_signer(sign_callback, "es256", cert_pem_bytes)
         
-        # 4. Construir o Manifesto C2PA
+        # 5. Construir o Manifesto C2PA
         manifest_config = {
             "claim_generator": "Verisignum_Shield/3.0",
             "assertions": [
@@ -110,16 +120,14 @@ async def sign_file(
             ]
         }
         
-        # O c2pa-python exige que o manifesto seja passado como bytes
+        # 6. Assinar fisicamente a imagem
         manifest_bytes = json.dumps(manifest_config).encode('utf-8')
-        
-        # 5. Assinar fisicamente a imagem/vídeo
         c2pa.sign_file(input_path, output_path, manifest_bytes, signer)
         
-        # 6. Limpeza agendada do ficheiro original
+        # 7. Limpeza agendada do ficheiro original
         background_tasks.add_task(cleanup_files, input_path, output_path)
         
-        # 7. Devolver ficheiro assinado com sucesso!
+        # 8. Devolver ficheiro assinado com sucesso!
         return FileResponse(
             path=output_path,
             media_type=file.content_type,
@@ -127,5 +135,6 @@ async def sign_file(
         )
 
     except Exception as e:
-        print(f"Erro Interno Capturado: {str(e)}")
+        import traceback
+        traceback.print_exc() # Isso envia o erro completo para os Logs do Render
         raise HTTPException(status_code=500, detail=str(e))
