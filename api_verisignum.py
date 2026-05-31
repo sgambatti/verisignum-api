@@ -64,12 +64,17 @@ def get_certs():
             x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
             critical=False
         ).add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key()),
+            critical=False
+        ).add_extension(
             x509.KeyUsage(
                 digital_signature=True, content_commitment=False, key_encipherment=False,
                 data_encipherment=False, key_agreement=False, key_cert_sign=False,
                 crl_sign=False, encipher_only=False, decipher_only=False
             ),
             critical=True
+        ).add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True
         ).sign(private_key, hashes.SHA256())
         
         # O PULO DO GATO: Exportar a chave privada estritamente em PKCS8
@@ -108,12 +113,11 @@ async def sign_file(
         # 2. Gerar chaves invioláveis
         cert_path, key_path = get_certs()
         
-        # 3. O manifesto usa caminhos absolutos
+        # 3. O manifesto AGORA NÃO TEM as chaves embutidas. 
+        # Vamos parar de confundir o parser do Rust!
         manifest_config = {
             "alg": "es256",
             "claim_generator": "Verisignum_Shield/3.0",
-            "private_key": key_path,
-            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -130,8 +134,15 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. Assina o ficheiro (sem cwd="tmp", usando os caminhos absolutos)
-        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
+        # 4. Assina o ficheiro forçando o motor a ler os ficheiros do disco
+        cmd = [
+            "c2patool", input_path, 
+            "-m", manifest_path, 
+            "--certs", cert_path, # <-- Obrigamos o c2patool a abrir o ficheiro 
+            "--key", key_path,    # <-- Obrigamos o c2patool a abrir a chave
+            "-o", output_path, 
+            "-f"
+        ]
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
