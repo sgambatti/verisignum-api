@@ -5,7 +5,7 @@ import datetime
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography import x509
 from cryptography.x509.oid import NameOID
@@ -31,23 +31,24 @@ def cleanup_files(*paths):
 
 def get_certs():
     """
-    Geração cirúrgica da Âncora de Confiança C2PA.
-    Aplica Formato PKCS#8, SubjectKeyIdentifier e DigitalSignature KeyUsage.
-    Isso satisfaz 100% das exigências do parser COSE em Rust.
+    Geração da Âncora de Confiança C2PA.
+    TROCADO PARA RSA (ps256). 
+    O algoritmo RSA é universal e blindado contra os erros de parsing (COSE) 
+    que o motor Rust apresenta com Curvas Elípticas em servidores Linux.
     """
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        # 1. Chave Curva Elíptica (P-256) exigida pelo es256
-        private_key = ec.generate_private_key(ec.SECP256R1())
+        # 1. Chave RSA 2048 (Exigida pelo alg ps256)
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         
         # 2. Definição do Sujeito
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
         ])
         
-        # 3. Construção rigorosa do Certificado X.509 v3
+        # 3. Construção do Certificado X.509 v3
         cert = x509.CertificateBuilder().subject_name(
             subject
         ).issuer_name(
@@ -77,11 +78,11 @@ def get_certs():
             x509.BasicConstraints(ca=False, path_length=None), critical=True
         ).sign(private_key, hashes.SHA256())
         
-        # O PULO DO GATO: Exportar a chave privada estritamente em PKCS8
+        # Exportar a chave privada em PKCS8
         with open(key_path, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8, # <- Esta é a solução do erro COSE
+                format=serialization.PrivateFormat.PKCS8, 
                 encryption_algorithm=serialization.NoEncryption()
             ))
             
@@ -92,7 +93,7 @@ def get_certs():
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - PKCS8) operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - RSA/ps256) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -110,14 +111,15 @@ async def sign_file(
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Gerar chaves invioláveis
+        # 2. Gerar chaves RSA invulneráveis a bugs de parsing
         cert_path, key_path = get_certs()
         
-        # 3. O manifesto AGORA NÃO TEM as chaves embutidas. 
-        # Vamos parar de confundir o parser do Rust!
+        # 3. O manifesto volta a ter as chaves (O c2patool exige que seja aqui!)
         manifest_config = {
-            "alg": "es256",
+            "alg": "ps256", # ALGORITMO MUDADO PARA COMBINAR COM A CHAVE RSA
             "claim_generator": "Verisignum_Shield/3.0",
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -134,12 +136,10 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. Assina o ficheiro forçando o motor a ler os ficheiros do disco
+        # 4. Assina o ficheiro usando o comando correto do c2patool (sem as flags inventadas)
         cmd = [
             "c2patool", input_path, 
             "-m", manifest_path, 
-            "--certs", cert_path, # <-- Obrigamos o c2patool a abrir o ficheiro 
-            "--key", key_path,    # <-- Obrigamos o c2patool a abrir a chave
             "-o", output_path, 
             "-f"
         ]
