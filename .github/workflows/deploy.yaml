@@ -1,0 +1,52 @@
+name: Verisignum CI/CD Pipeline
+
+# O robô será ativado sempre que houver um "push" para a branch "main"
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # ETAPA 1: Garantir que o código não tem erros antes de publicar
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Aceder ao código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar o Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip' # Acelera a instalação nas próximas vezes
+
+      - name: Instalar dependências da API
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verificação de Segurança e Sintaxe (Flake8)
+        run: |
+          pip install flake8
+          # Para o processo imediatamente se o código Python tiver erros de sintaxe fatais
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  # ETAPA 2: Fazer o Deploy no Render sem intervenção humana
+  deploy:
+    needs: build-and-test # Só faz o deploy SE a etapa anterior não der erro
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disparar Atualização Automática no Render
+        env:
+          # Esta é uma chave secreta que vamos guardar no GitHub de forma segura
+          RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$RENDER_DEPLOY_HOOK" ]; then
+            echo "Erro: A chave RENDER_DEPLOY_HOOK não foi encontrada nos Secrets do GitHub."
+            echo "Por favor, adicione o URL de Deploy do Render nas configurações do GitHub."
+            exit 1
+          fi
+          
+          echo "Iniciando deploy automático e seguro no Render..."
+          curl -X POST "$RENDER_DEPLOY_HOOK"
+          echo "Deploy disparado com sucesso! A nova versão estará online em instantes."
