@@ -1,14 +1,10 @@
 import os
 import json
 import subprocess
-import datetime
+import urllib.request
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography import x509
-from cryptography.x509.oid import NameOID
 
 app = FastAPI(title="Verisignum Shield API")
 
@@ -29,71 +25,39 @@ def cleanup_files(*paths):
         except:
             pass
 
-def get_certs():
+def get_adobe_test_certs():
     """
-    Geração da Âncora de Confiança C2PA.
-    TROCADO PARA RSA (ps256). 
-    O algoritmo RSA é universal e blindado contra os erros de parsing (COSE) 
-    que o motor Rust apresenta com Curvas Elípticas em servidores Linux.
+    A SOLUÇÃO DEFINITIVA: Em vez de gerar chaves dinamicamente e lidar com
+    bugs de formatação do OpenSSL no Docker, nós baixamos os certificados
+    oficiais de teste diretamente do repositório dos criadores do c2patool.
+    Isto garante 100% de compatibilidade com o parser COSE.
     """
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
-    if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        # 1. Chave RSA 2048 (Exigida pelo alg ps256)
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    cert_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_certs.pem"
+    key_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_private.key"
+    
+    try:
+        # Baixa os ficheiros caso eles não existam ou estejam vazios
+        if not os.path.exists(cert_path) or os.path.getsize(cert_path) == 0:
+            req = urllib.request.Request(cert_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(cert_path, 'wb') as f:
+                f.write(response.read())
+                
+        if not os.path.exists(key_path) or os.path.getsize(key_path) == 0:
+            req = urllib.request.Request(key_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(key_path, 'wb') as f:
+                f.write(response.read())
+    except Exception as e:
+        raise Exception(f"Falha ao baixar certificados oficiais da Adobe: {e}")
         
-        # 2. Definição do Sujeito
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
-        ])
-        
-        # 3. Construção do Certificado X.509 v3
-        cert = x509.CertificateBuilder().subject_name(
-            subject
-        ).issuer_name(
-            issuer
-        ).public_key(
-            private_key.public_key()
-        ).serial_number(
-            x509.random_serial_number()
-        ).not_valid_before(
-            datetime.datetime.utcnow() - datetime.timedelta(days=1)
-        ).not_valid_after(
-            datetime.datetime.utcnow() + datetime.timedelta(days=365)
-        ).add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()),
-            critical=False
-        ).add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key()),
-            critical=False
-        ).add_extension(
-            x509.KeyUsage(
-                digital_signature=True, content_commitment=False, key_encipherment=False,
-                data_encipherment=False, key_agreement=False, key_cert_sign=False,
-                crl_sign=False, encipher_only=False, decipher_only=False
-            ),
-            critical=True
-        ).add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True
-        ).sign(private_key, hashes.SHA256())
-        
-        # Exportar a chave privada em PKCS8
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8, 
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-            
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
-            
-    return cert_path, key_path
+    # Retorna APENAS OS NOMES RELATIVOS para rodarmos tudo confinado na pasta /tmp
+    return "vsg_cert.pem", "vsg_key.pem"
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - RSA/ps256 V2) operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Adobe Test Keys V3) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -102,24 +66,33 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    input_path = f"/tmp/{file.filename}"
-    output_path = f"/tmp/signed_{file.filename}"
-    manifest_path = f"/tmp/manifest_{file.filename}.json"
+    # Usamos um nome seguro e limpo para evitar problemas com espaços no terminal Linux
+    safe_ext = os.path.splitext(file.filename)[1]
+    if not safe_ext: safe_ext = ".png"
+    
+    input_filename = f"upload_midia{safe_ext}"
+    output_filename = f"signed_midia{safe_ext}"
+    manifest_filename = "manifest_midia.json"
+    
+    input_path = f"/tmp/{input_filename}"
+    output_path = f"/tmp/{output_filename}"
+    manifest_path = f"/tmp/{manifest_filename}"
     
     try:
         # 1. Salvar o arquivo
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Gerar chaves RSA invulneráveis a bugs de parsing
-        cert_path, key_path = get_certs()
+        # 2. Obter as chaves infalíveis da Adobe
+        cert_name, key_name = get_adobe_test_certs()
         
-        # 3. O manifesto volta a ter as chaves (O c2patool exige que seja aqui!)
+        # 3. O manifesto formatado exatamente como a Adobe exige
         manifest_config = {
-            "alg": "ps256", # ALGORITMO MUDADO PARA COMBINAR COM A CHAVE RSA
+            "alg": "es256",
             "claim_generator": "Verisignum_Shield/3.0",
-            "private_key": key_path,
-            "sign_cert": cert_path,
+            "private_key": key_name,
+            "sign_cert": cert_name,
+            "ta_url": "http://timestamp.digicert.com", # Timestamp oficial
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -136,16 +109,16 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. Assina o ficheiro usando o comando correto do c2patool (sem as flags inventadas)
+        # 4. Assinar o ficheiro isolando o terminal na pasta /tmp
         cmd = [
-            "c2patool", input_path, 
-            "-m", manifest_path, 
-            "-o", output_path, 
+            "c2patool", input_filename, 
+            "-m", manifest_filename, 
+            "-o", output_filename, 
             "-f"
         ]
         
-        print(f"DEBUG INJEÇÃO V2: O comando a ser executado é {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        print(f"DEBUG INJEÇÃO V3: Comando -> {' '.join(cmd)}")
+        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"DEBUG STDOUT: {result.stdout}")
@@ -155,7 +128,7 @@ async def sign_file(
         if not os.path.exists(output_path):
             raise Exception("Erro desconhecido: O c2patool rodou mas não gerou a saída.")
         
-        # 5. Agendar limpeza e enviar resposta
+        # 5. Agendar limpeza e enviar resposta com o nome original do ficheiro
         background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
         
         return FileResponse(
