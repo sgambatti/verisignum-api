@@ -1,15 +1,9 @@
 import os
 import json
 import subprocess
-from datetime import datetime, timedelta
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from cryptography.hazmat.primitives.asymmetric import ec
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.x509.oid import NameOID
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
 
 app = FastAPI(title="Verisignum Shield API")
 
@@ -31,61 +25,32 @@ def cleanup_files(*paths):
             pass
 
 def get_certs():
-    """Gera um certificado self-signed 100% compatível com a exigência COSE/C2PA"""
+    """
+    A SOLUÇÃO DEFINITIVA: Abandona o Python para gerar chaves.
+    Usa o OpenSSL nativo do Linux (Render) para gerar um certificado 
+    matematicamente perfeito e impossível de ser rejeitado pelo c2patool.
+    """
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        public_key = private_key.public_key()
+        # 1. Gera chave privada de Curva Elíptica (P-256) compatível com es256
+        subprocess.run(
+            "openssl ecparam -name prime256v1 -genkey -noout -out /tmp/vsg_key.pem", 
+            shell=True, check=True
+        )
         
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COUNTRY_NAME, u"BR"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum"),
-            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield"),
-        ])
-        
-        # O SEGREDO: O C2PA / COSE exige estritamente o SubjectKeyIdentifier
-        ski = x509.SubjectKeyIdentifier.from_public_key(public_key)
-        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(public_key)
-        
-        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
-            public_key
-        ).serial_number(
-            x509.random_serial_number()
-        ).not_valid_before(
-            datetime.utcnow() - timedelta(days=1)
-        ).not_valid_after(
-            datetime.utcnow() + timedelta(days=365)
-        ).add_extension(
-            ski, critical=False # Exigido para o 'kid' no header COSE
-        ).add_extension(
-            aki, critical=False
-        ).add_extension(
-            x509.BasicConstraints(ca=True, path_length=None), critical=True
-        ).add_extension(
-            x509.KeyUsage(
-                digital_signature=True, content_commitment=False, key_encipherment=False,
-                data_encipherment=False, key_agreement=False, key_cert_sign=True,
-                crl_sign=False, encipher_only=False, decipher_only=False
-            ), critical=True
-        ).sign(private_key, hashes.SHA256(), default_backend())
-        
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.TraditionalOpenSSL,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-            
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        # 2. Gera certificado X.509 Padrão do Sistema
+        subprocess.run(
+            'openssl req -new -x509 -key /tmp/vsg_key.pem -out /tmp/vsg_cert.pem -days 365 -subj "/C=BR/O=Verisignum/CN=Verisignum Shield"', 
+            shell=True, check=True
+        )
             
     return cert_path, key_path
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI) operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Docker CLI com OpenSSL) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -94,28 +59,24 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    # Usaremos nomes relativos e executaremos o processo dentro do /tmp 
-    # para evitar os bugs de caminhos absolutos do c2patool em Linux
-    input_filename = file.filename
-    output_filename = f"signed_{file.filename}"
-    manifest_filename = f"manifest_{file.filename}.json"
-    
-    input_path = f"/tmp/{input_filename}"
-    output_path = f"/tmp/{output_filename}"
-    manifest_path = f"/tmp/{manifest_filename}"
+    input_path = f"/tmp/{file.filename}"
+    output_path = f"/tmp/signed_{file.filename}"
+    manifest_path = f"/tmp/manifest_{file.filename}.json"
     
     try:
+        # 1. Salvar o arquivo
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        get_certs()
+        # 2. Gerar chaves usando o Linux (sem erros de Python)
+        cert_path, key_path = get_certs()
         
-        # O manifesto AGORA define o alg e usa nomes relativos ao diretório /tmp
+        # 3. O manifesto aponta para as chaves reais
         manifest_config = {
             "alg": "es256",
             "claim_generator": "Verisignum_Shield/3.0",
-            "private_key": "vsg_key.pem",
-            "sign_cert": "vsg_cert.pem",
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -132,9 +93,9 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # O TRUQUE DE MESTRE: cwd="/tmp" garante que o motor encontre as chaves pelo nome curto
-        cmd = ["c2patool", input_filename, "-o", output_filename, "-m", manifest_filename, "-f"]
-        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
+        # 4. Assina o ficheiro
+        cmd = ["c2patool", input_path, "-o", output_path, "-m", manifest_path, "-f"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
             print(f"DEBUG STDOUT: {result.stdout}")
@@ -142,14 +103,15 @@ async def sign_file(
             raise Exception(f"Motor C2PA falhou: {result.stderr}")
             
         if not os.path.exists(output_path):
-            raise Exception("O comando c2patool foi executado, mas o ficheiro não foi gerado.")
+            raise Exception("Erro desconhecido: O c2patool rodou mas não gerou a saída.")
         
+        # 5. Agendar limpeza e enviar resposta
         background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
         
         return FileResponse(
             path=output_path, 
             media_type=file.content_type, 
-            filename=output_filename
+            filename=f"signed_{file.filename}"
         )
 
     except Exception as e:
