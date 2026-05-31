@@ -31,28 +31,45 @@ def cleanup_files(*paths):
             pass
 
 def get_or_create_certs():
-    """Gera os certificados e guarda no disco para o motor da Adobe utilizar"""
+    """Gera certificados compatíveis com o padrão COSE da Adobe"""
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
     if not os.path.exists(cert_path) or not os.path.exists(key_path):
         private_key = ec.generate_private_key(ec.SECP256R1(), default_backend())
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
-            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node"),
-        ])
-        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
-            private_key.public_key()
-        ).serial_number(x509.random_serial_number()).not_valid_before(
-            datetime.utcnow()
-        ).not_valid_after(datetime.utcnow() + timedelta(days=365)).sign(private_key, hashes.SHA256(), default_backend())
         
+        # Nome do sujeito (obrigatório para o parser COSE)
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, u"BR"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum"),
+            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield"),
+        ])
+        
+        cert = x509.CertificateBuilder().subject_name(
+            subject
+        ).issuer_name(
+            issuer
+        ).public_key(
+            private_key.public_key()
+        ).serial_number(
+            x509.random_serial_number()
+        ).not_valid_before(
+            datetime.utcnow() - timedelta(minutes=1) # Margem de erro de clock
+        ).not_valid_after(
+            datetime.utcnow() + timedelta(days=365)
+        ).add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True,
+        ).sign(private_key, hashes.SHA256(), default_backend())
+        
+        # Escrever chave privada (Traditional OpenSSL)
         with open(key_path, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.TraditionalOpenSSL,
                 encryption_algorithm=serialization.NoEncryption()
             ))
+            
+        # Escrever certificado (PEM puro)
         with open(cert_path, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
             
