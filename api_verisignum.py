@@ -93,7 +93,7 @@ def get_certs():
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - RSA/ps256) operacional."}
+    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - RSA/ps256 V2) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -143,6 +143,8 @@ async def sign_file(
             "-o", output_path, 
             "-f"
         ]
+        
+        print(f"DEBUG INJEÇÃO V2: O comando a ser executado é {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode != 0:
