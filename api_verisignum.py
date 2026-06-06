@@ -18,7 +18,6 @@ app.add_middleware(
 )
 
 def cleanup_files(*paths):
-    """Limpeza do servidor após o processamento"""
     for path in paths:
         try:
             if os.path.exists(path):
@@ -27,12 +26,6 @@ def cleanup_files(*paths):
             pass
 
 def get_certificates():
-    """
-    Motor Inteligente de Certificados:
-    1. Tenta usar as chaves secretas injetadas na raiz pelo Render.
-    2. Tenta usar as chaves locais na pasta certs/ (para dev local).
-    3. Se não existirem, faz fallback seguro para as chaves de teste da Adobe.
-    """
     cert_path_tmp = "/tmp/vsg_cert.pem"
     key_path_tmp = "/tmp/vsg_key.pem"
 
@@ -45,34 +38,48 @@ def get_certificates():
 
     # 2. Procura na pasta local (Para testes no seu computador)
     if os.path.exists("certs/verisignum_cert.pem") and os.path.exists("certs/verisignum_key.pem"):
-        print("DEBUG: Utilizando chaves locais da Verisignum da pasta 'certs/'.")
+        print("DEBUG: Utilizando chaves locais.")
         shutil.copy("certs/verisignum_cert.pem", cert_path_tmp)
         shutil.copy("certs/verisignum_key.pem", key_path_tmp)
         return "vsg_cert.pem", "vsg_key.pem"
     
-    # 3. FALLBACK: Baixa os certificados de teste da Adobe
-    print("DEBUG: Chaves locais não encontradas. Baixando chaves de teste da Adobe.")
+    # 3. FALLBACK: Chaves de Teste da Adobe
+    print("DEBUG: Chaves não encontradas. Ativando Fallback da Adobe.")
     cert_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_certs.pem"
     key_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_private.key"
     
     try:
-        if not os.path.exists(cert_path_tmp) or os.path.getsize(cert_path_tmp) == 0:
-            req = urllib.request.Request(cert_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response, open(cert_path_tmp, 'wb') as f:
-                f.write(response.read())
-                
-        if not os.path.exists(key_path_tmp) or os.path.getsize(key_path_tmp) == 0:
-            req = urllib.request.Request(key_url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response, open(key_path_tmp, 'wb') as f:
-                f.write(response.read())
+        req = urllib.request.Request(cert_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response, open(cert_path_tmp, 'wb') as f:
+            f.write(response.read())
+            
+        req = urllib.request.Request(key_url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response, open(key_path_tmp, 'wb') as f:
+            f.write(response.read())
     except Exception as e:
-        raise Exception(f"Falha ao gerir certificados de assinatura: {e}")
+        raise Exception(f"Falha ao gerir certificados: {e}")
         
     return "vsg_cert.pem", "vsg_key.pem"
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor de Certificados V5) operacional."}
+    """Endpoint de Diagnóstico para validar se o Render injetou as chaves corretamente"""
+    cert_root = os.path.exists("verisignum_cert.pem")
+    key_root = os.path.exists("verisignum_key.pem")
+    
+    estado = "FALLBACK ATIVO (Usando chaves da Adobe Test)"
+    if cert_root and key_root:
+        estado = "SUCESSO (Chaves Verisignum Injetadas pelo Render!)"
+        
+    return {
+        "status": "online", 
+        "motor": "V5.1 - Diagnosis Mode",
+        "estado_das_chaves": estado,
+        "diagnostico_ficheiros": {
+            "verisignum_cert.pem_encontrado": cert_root,
+            "verisignum_key.pem_encontrado": key_root
+        }
+    }
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -93,17 +100,17 @@ async def sign_file(
     manifest_path = f"/tmp/{manifest_filename}"
     
     try:
-        # 1. Salvar o arquivo
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        # 2. Obter as chaves corretas
         cert_name, key_name = get_certificates()
         
-        # 3. Manifesto Dinâmico
+        # O OpenSSL cria chaves RSA padrão. O C2PA exige rs256 ou ps256 para elas.
+        usando_chaves_reais = os.path.exists("verisignum_key.pem") or os.path.exists("certs/verisignum_key.pem")
+        
         manifest_config = {
-            "alg": "es256" if "Adobe" in cert_name else "rs256", 
-            "claim_generator": "Verisignum_Shield/5.0",
+            "alg": "rs256" if usando_chaves_reais else "es256", 
+            "claim_generator": "Verisignum_Shield/5.1",
             "private_key": key_name,
             "sign_cert": cert_name,
             "ta_url": "http://timestamp.digicert.com",
@@ -119,37 +126,19 @@ async def sign_file(
                 }
             ]
         }
-        
-        # Define algoritmo RS256 se estiver a usar as chaves reais da Verisignum
-        usando_chaves_reais = os.path.exists("verisignum_key.pem") or os.path.exists("certs/verisignum_key.pem")
-        manifest_config["alg"] = "rs256" if usando_chaves_reais else "es256"
 
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        # 4. Injetar a Criptografia
-        cmd = [
-            "c2patool", input_filename, 
-            "-m", manifest_filename, 
-            "-o", output_filename, 
-            "-f"
-        ]
-        
+        cmd = ["c2patool", input_filename, "-m", manifest_filename, "-o", output_filename, "-f"]
         result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
         
         if result.returncode != 0:
             raise Exception(f"Erro no Motor C2PA: {result.stderr}")
             
-        if not os.path.exists(output_path):
-            raise Exception("Erro desconhecido: C2PA falhou em gerar a saída.")
-        
         background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
         
-        return FileResponse(
-            path=output_path, 
-            media_type=file.content_type, 
-            filename=f"signed_{file.filename}"
-        )
+        return FileResponse(path=output_path, media_type=file.content_type, filename=f"signed_{file.filename}")
 
     except Exception as e:
         import traceback
