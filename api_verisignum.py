@@ -1,17 +1,14 @@
 import os
 import json
 import subprocess
-import datetime
+import urllib.request
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography import x509
-from cryptography.x509.oid import NameOID
 
 app = FastAPI(title="Verisignum Shield API")
 
+# Configuração CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -20,90 +17,46 @@ app.add_middleware(
 )
 
 def cleanup_files(*paths):
+    """Limpeza do servidor após o processamento"""
     for path in paths:
         try:
-            if os.path.exists(path): os.remove(path)
-        except: pass
+            if os.path.exists(path):
+                os.remove(path)
+        except:
+            pass
 
-def get_certs():
+def get_adobe_test_certs():
+    """
+    A SOLUÇÃO DEFINITIVA: Baixamos os certificados oficiais de teste 
+    diretamente do repositório dos criadores do c2patool.
+    Isto garante 100% de compatibilidade com o parser COSE.
+    """
     cert_path = "/tmp/vsg_cert.pem"
     key_path = "/tmp/vsg_key.pem"
     
-    if not os.path.exists(cert_path) or not os.path.exists(key_path):
-        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum Shield Node")])
+    cert_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_certs.pem"
+    key_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_private.key"
+    
+    try:
+        # Baixa os ficheiros caso eles não existam ou estejam vazios
+        if not os.path.exists(cert_path) or os.path.getsize(cert_path) == 0:
+            req = urllib.request.Request(cert_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(cert_path, 'wb') as f:
+                f.write(response.read())
+                
+        if not os.path.exists(key_path) or os.path.getsize(key_path) == 0:
+            req = urllib.request.Request(key_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response, open(key_path, 'wb') as f:
+                f.write(response.read())
+    except Exception as e:
+        raise Exception(f"Falha ao baixar certificados oficiais da Adobe: {e}")
         
-        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
-            private_key.public_key()
-        ).serial_number(x509.random_serial_number()).not_valid_before(
-            datetime.datetime.utcnow() - datetime.timedelta(days=1)
-        ).not_valid_after(
-            datetime.datetime.utcnow() + datetime.timedelta(days=365)
-        ).add_extension(
-            x509.SubjectKeyIdentifier.from_public_key(private_key.public_key()), critical=False
-        ).add_extension(
-            x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key()), critical=False
-        ).add_extension(
-            x509.KeyUsage(
-                digital_signature=True, content_commitment=False, key_encipherment=False,
-                data_encipherment=False, key_agreement=False, key_cert_sign=False,
-                crl_sign=False, encipher_only=False, decipher_only=False
-            ), critical=True
-        ).add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True).sign(private_key, hashes.SHA256())
-        
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM, format=serialization.PrivateFormat.PKCS8, encryption_algorithm=serialization.NoEncryption()
-            ))
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
-            
-    return cert_path, key_path
+    # Retorna APENAS OS NOMES RELATIVOS para rodarmos tudo confinado na pasta /tmp
+    return "vsg_cert.pem", "vsg_key.pem"
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "API Verisignum (Motor Docker CLI - RSA/ps256) operacional."}
-
-# ==========================================
-# NOVO ENDPOINT: VERIFICADOR FORENSE (LENS)
-# ==========================================
-@app.post("/v1/lens/verify")
-async def verify_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
-):
-    """Lê uma imagem e verifica se possui assinatura C2PA real embutida."""
-    input_path = f"/tmp/verify_{file.filename}"
-    
-    try:
-        with open(input_path, "wb") as buffer:
-            buffer.write(await file.read())
-            
-        # Executa a ferramenta C2PA no modo "Leitura" (sem a flag -o ou -m)
-        cmd = ["c2patool", input_path]
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        background_tasks.add_task(cleanup_files, input_path)
-        
-        if result.returncode == 0 and result.stdout.strip() != "{}":
-            # Conseguiu ler um manifesto JSON válido de dentro da imagem!
-            manifest_data = json.loads(result.stdout)
-            return {
-                "status": "verified", 
-                "has_c2pa": True, 
-                "manifest": manifest_data
-            }
-        else:
-            # Não tem assinatura ou a assinatura foi quebrada
-            return {
-                "status": "unverified", 
-                "has_c2pa": False, 
-                "error": "Nenhuma assinatura C2PA autêntica encontrada no arquivo."
-            }
-
-    except Exception as e:
-        background_tasks.add_task(cleanup_files, input_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    return {"status": "online", "message": "API Verisignum (Motor Adobe Test Keys V3) operacional."}
 
 @app.post("/v1/shield/sign")
 async def sign_file(
@@ -112,21 +65,33 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    input_path = f"/tmp/{file.filename}"
-    output_path = f"/tmp/signed_{file.filename}"
-    manifest_path = f"/tmp/manifest_{file.filename}.json"
+    # Usamos um nome seguro e limpo para evitar problemas com espaços no terminal Linux
+    safe_ext = os.path.splitext(file.filename)[1]
+    if not safe_ext: safe_ext = ".png"
+    
+    input_filename = f"upload_midia{safe_ext}"
+    output_filename = f"signed_midia{safe_ext}"
+    manifest_filename = "manifest_midia.json"
+    
+    input_path = f"/tmp/{input_filename}"
+    output_path = f"/tmp/{output_filename}"
+    manifest_path = f"/tmp/{manifest_filename}"
     
     try:
+        # 1. Salvar o arquivo recebido pelo Front-end
         with open(input_path, "wb") as buffer:
             buffer.write(await file.read())
         
-        cert_path, key_path = get_certs()
+        # 2. Obter as chaves infalíveis da Adobe
+        cert_name, key_name = get_adobe_test_certs()
         
+        # 3. O manifesto formatado exatamente como a Adobe exige
         manifest_config = {
-            "alg": "ps256",
+            "alg": "es256",
             "claim_generator": "Verisignum_Shield/3.0",
-            "private_key": key_path,
-            "sign_cert": cert_path,
+            "private_key": key_name,
+            "sign_cert": cert_name,
+            "ta_url": "http://timestamp.digicert.com", # Timestamp oficial
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -143,16 +108,34 @@ async def sign_file(
         with open(manifest_path, "w") as f:
             json.dump(manifest_config, f)
             
-        cmd = ["c2patool", input_path, "-m", manifest_path, "-o", output_path, "-f"]
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # 4. Assinar o ficheiro isolando o terminal na pasta /tmp
+        cmd = [
+            "c2patool", input_filename, 
+            "-m", manifest_filename, 
+            "-o", output_filename, 
+            "-f"
+        ]
+        
+        print(f"DEBUG INJEÇÃO V3: Comando -> {' '.join(cmd)}")
+        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
         
         if result.returncode != 0:
-            raise Exception(f"Motor C2PA falhou: {result.stderr}")
+            raise Exception(f"Erro no Motor C2PA: {result.stderr}")
             
+        if not os.path.exists(output_path):
+            raise Exception("Erro desconhecido: O c2patool rodou mas não gerou a saída.")
+        
+        # 5. Agendar limpeza e enviar resposta com o nome original do ficheiro
         background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
         
-        return FileResponse(path=output_path, media_type=file.content_type, filename=f"signed_{file.filename}")
+        return FileResponse(
+            path=output_path, 
+            media_type=file.content_type, 
+            filename=f"signed_{file.filename}"
+        )
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         background_tasks.add_task(cleanup_files, input_path, manifest_path)
         raise HTTPException(status_code=500, detail=str(e))
