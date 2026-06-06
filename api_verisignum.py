@@ -95,8 +95,23 @@ async def sign_file(
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI")
 ):
-    safe_ext = os.path.splitext(file.filename)[1]
-    if not safe_ext: safe_ext = ".png"
+    # Correção: Mapeamento seguro de extensões suportadas pelo C2PA
+    ext_map = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "video/mp4": ".mp4",
+        "audio/mpeg": ".mp3",
+        "audio/wav": ".wav"
+    }
+    
+    safe_ext = ext_map.get(file.content_type)
+    if not safe_ext:
+        safe_ext = os.path.splitext(file.filename)[1].lower()
+        
+    supported_exts = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mp3", ".wav"]
+    if safe_ext not in supported_exts:
+        raise HTTPException(status_code=400, detail=f"Formato não suportado ({safe_ext}). Envie apenas imagens (JPG/PNG/WEBP), vídeos (MP4) ou áudios (MP3/WAV).")
     
     input_filename = f"upload_midia{safe_ext}"
     output_filename = f"signed_midia{safe_ext}"
