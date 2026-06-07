@@ -74,3 +74,65 @@ async def sign_file(file: UploadFile = File(...)):
     elif ext.endswith(".mp3"): media_type = "audio/mpeg"
         
     return FileResponse(output_path, media_type=media_type)
+
+	background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
+        
+        return FileResponse(
+            path=output_path, 
+            media_type=file.content_type, 
+            filename=f"signed_{file.filename}"
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        background_tasks.add_task(cleanup_files, input_path, manifest_path)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/v1/lens/verify")
+async def verify_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """
+    VerisignumLens: Lê a assinatura C2PA de um ficheiro suspeito sem alterá-lo.
+    """
+    safe_ext = os.path.splitext(file.filename)[1]
+    if not safe_ext: safe_ext = ".png"
+    
+    input_filename = f"verify_midia{safe_ext}"
+    input_path = f"/tmp/{input_filename}"
+    
+    try:
+        # 1. Guardar a evidência para análise
+        with open(input_path, "wb") as buffer:
+            buffer.write(await file.read())
+            
+        # 2. Executar o c2patool em modo Leitura (sem o comando -o de saída)
+        cmd = ["c2patool", input_filename]
+        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
+        
+        has_c2pa = False
+        manifest_data = None
+        
+        # 3. O c2patool retorna 0 e um JSON no stdout se a assinatura existir e for válida
+        if result.returncode == 0 and result.stdout.strip().startswith("{"):
+            try:
+                manifest_data = json.loads(result.stdout)
+                has_c2pa = True
+            except:
+                pass
+                
+        # 4. Agendar a limpeza da evidência
+        background_tasks.add_task(cleanup_files, input_path)
+        
+        return {
+            "has_c2pa": has_c2pa,
+            "manifest": manifest_data,
+            "raw_output": result.stdout if not has_c2pa else "JSON Parsed",
+            "error": result.stderr
+        }
+        
+    except Exception as e:
+        background_tasks.add_task(cleanup_files, input_path)
+        raise HTTPException(status_code=500, detail=f"Falha na análise: {str(e)}")
