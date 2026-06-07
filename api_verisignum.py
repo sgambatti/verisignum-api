@@ -1,7 +1,7 @@
 import os
 import json
 import subprocess
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
@@ -28,7 +28,11 @@ def read_root():
 # ROTA 1: SHIELD (ASSINATURA C2PA)
 # -------------------------------------------------------------------
 @app.post("/v1/shield/sign")
-async def sign_file(file: UploadFile = File(...)):
+async def sign_file(
+    file: UploadFile = File(...),
+    author: str = Form("Autor Desconhecido"),
+    organization: str = Form("Verisignum AI")
+):
     file_id = str(uuid.uuid4())
     input_path = os.path.join(TEMP_DIR, f"{file_id}_{file.filename}")
     output_path = os.path.join(TEMP_DIR, f"signed_{file_id}_{file.filename}")
@@ -42,7 +46,12 @@ async def sign_file(file: UploadFile = File(...)):
         "assertions": [
             {
                 "label": "stds.schema-org.CreativeWork",
-                "data": {"@type": "CreativeWork"}
+                "data": {
+                    "@context": "http://schema.org/",
+                    "@type": "CreativeWork",
+                    "author": [{"@type": "Person", "name": author}],
+                    "publisher": [{"@type": "Organization", "name": organization}]
+                }
             }
         ]
     }
