@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uuid
 
-app = FastAPI(title="Verisignum Shield API - Stable")
+app = FastAPI(title="Verisignum Shield API - Stable + Lens")
 
 # Configuração CORS essencial para o Frontend comunicar com o Render
 app.add_middleware(
@@ -22,21 +22,21 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "motor": "Verisignum API (Versão Estável)"}
+    return {"status": "online", "motor": "Verisignum API (Estável + Lens)"}
 
+# -------------------------------------------------------------------
+# ROTA 1: SHIELD (ASSINATURA C2PA)
+# -------------------------------------------------------------------
 @app.post("/v1/shield/sign")
 async def sign_file(file: UploadFile = File(...)):
-    # Usa UUID para evitar que múltiplos uploads simultâneos reescrevam o mesmo ficheiro
     file_id = str(uuid.uuid4())
     input_path = os.path.join(TEMP_DIR, f"{file_id}_{file.filename}")
     output_path = os.path.join(TEMP_DIR, f"signed_{file_id}_{file.filename}")
     manifest_path = os.path.join(TEMP_DIR, f"manifest_{file_id}.json")
     
-    # 1. Guardar o ficheiro recebido da interface web
     with open(input_path, "wb") as buffer:
         buffer.write(await file.read())
     
-    # 2. Configuração base do manifesto (Simples e compatível com c2patool)
     manifest = {
         "claim_generator": "Verisignum_Shield",
         "assertions": [
@@ -50,22 +50,18 @@ async def sign_file(file: UploadFile = File(...)):
     with open(manifest_path, "w") as f:
         json.dump(manifest, f)
         
-    # 3. Executar o c2patool com as configurações padrão (Fallback da Adobe automático)
     cmd = ["c2patool", input_path, "-m", manifest_path, "-o", output_path]
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
     except subprocess.CalledProcessError as e:
-        # Se houver erro, remove os arquivos temporários antes de lançar a exceção
         if os.path.exists(input_path): os.remove(input_path)
         if os.path.exists(manifest_path): os.remove(manifest_path)
-        raise HTTPException(status_code=500, detail=f"Erro ao assinar ficheiro no motor C2PA: {e.stderr}")
+        raise HTTPException(status_code=500, detail=f"Erro ao assinar ficheiro: {e.stderr}")
         
-    # Limpeza dos ficheiros originais e do manifesto para libertar espaço
     if os.path.exists(input_path): os.remove(input_path)
     if os.path.exists(manifest_path): os.remove(manifest_path)
         
-    # Definir media_type correto para retorno
     media_type = "image/jpeg"
     ext = file.filename.lower()
     if ext.endswith(".png"): media_type = "image/png"
@@ -75,64 +71,40 @@ async def sign_file(file: UploadFile = File(...)):
         
     return FileResponse(output_path, media_type=media_type)
 
-	background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
-        
-        return FileResponse(
-            path=output_path, 
-            media_type=file.content_type, 
-            filename=f"signed_{file.filename}"
-        )
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        background_tasks.add_task(cleanup_files, input_path, manifest_path)
-        raise HTTPException(status_code=500, detail=str(e))
-
+# -------------------------------------------------------------------
+# ROTA 2: LENS (LEITURA E VERIFICAÇÃO C2PA)
+# -------------------------------------------------------------------
 @app.post("/v1/lens/verify")
-async def verify_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
-):
-    """
-    VerisignumLens: Lê a assinatura C2PA de um ficheiro suspeito sem alterá-lo.
-    """
-    safe_ext = os.path.splitext(file.filename)[1]
-    if not safe_ext: safe_ext = ".png"
+async def verify_file(file: UploadFile = File(...)):
+    file_id = str(uuid.uuid4())
+    input_path = os.path.join(TEMP_DIR, f"verify_{file_id}_{file.filename}")
     
-    input_filename = f"verify_midia{safe_ext}"
-    input_path = f"/tmp/{input_filename}"
+    with open(input_path, "wb") as buffer:
+        buffer.write(await file.read())
+        
+    # Quando chamamos o c2patool sem o "-o", ele apenas lê a imagem e devolve o JSON dos metadados
+    cmd = ["c2patool", input_path]
     
     try:
-        # 1. Guardar a evidência para análise
-        with open(input_path, "wb") as buffer:
-            buffer.write(await file.read())
-            
-        # 2. Executar o c2patool em modo Leitura (sem o comando -o de saída)
-        cmd = ["c2patool", input_filename]
-        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
-        has_c2pa = False
-        manifest_data = None
+        # Se o returncode for 0 e houver output, significa que encontrou uma assinatura válida
+        has_c2pa = result.returncode == 0 and result.stdout.strip() != ""
         
-        # 3. O c2patool retorna 0 e um JSON no stdout se a assinatura existir e for válida
-        if result.returncode == 0 and result.stdout.strip().startswith("{"):
+        manifest_data = {}
+        if has_c2pa:
             try:
                 manifest_data = json.loads(result.stdout)
-                has_c2pa = True
             except:
                 pass
                 
-        # 4. Agendar a limpeza da evidência
-        background_tasks.add_task(cleanup_files, input_path)
+        if os.path.exists(input_path): os.remove(input_path)
         
         return {
             "has_c2pa": has_c2pa,
             "manifest": manifest_data,
-            "raw_output": result.stdout if not has_c2pa else "JSON Parsed",
-            "error": result.stderr
+            "raw_output": result.stdout if has_c2pa else result.stderr
         }
-        
     except Exception as e:
-        background_tasks.add_task(cleanup_files, input_path)
-        raise HTTPException(status_code=500, detail=f"Falha na análise: {str(e)}")
+        if os.path.exists(input_path): os.remove(input_path)
+        raise HTTPException(status_code=500, detail=f"Erro na verificação forense: {str(e)}")
