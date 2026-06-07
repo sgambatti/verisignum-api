@@ -1,15 +1,14 @@
 import os
 import json
 import subprocess
-import urllib.request
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-import shutil
+import uuid
 
-app = FastAPI(title="Verisignum Shield API")
+app = FastAPI(title="Verisignum Shield API - Stable")
 
-# Configuração CORS
+# Configuração CORS essencial para o Frontend comunicar com o Render
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,155 +16,61 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def cleanup_files(*paths):
-    for path in paths:
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except:
-            pass
-
-def get_certificates():
-    cert_path_tmp = "/tmp/vsg_cert.pem"
-    key_path_tmp = "/tmp/vsg_key.pem"
-
-    # Radar de Busca: Lista de todos os locais onde o Render/Windows pode guardar as chaves
-    locais_de_busca = [
-        ("", ""),                                                 # Raiz padrão
-        ("/etc/secrets/", "/etc/secrets/"),                       # Pasta secreta do Render (Linux)
-        ("/opt/render/project/src/", "/opt/render/project/src/"), # Caminho absoluto do Render
-        ("certs/", "certs/")                                      # Pasta de teste local no seu PC
-    ]
-
-    for cert_dir, key_dir in locais_de_busca:
-        cert_file = os.path.join(cert_dir, "verisignum_cert.pem")
-        key_file = os.path.join(key_dir, "verisignum_key.pem")
-        
-        if os.path.exists(cert_file) and os.path.exists(key_file):
-            print(f"DEBUG: Chaves REAIS encontradas na pasta: '{cert_dir or 'raiz'}'")
-            shutil.copy(cert_file, cert_path_tmp)
-            shutil.copy(key_file, key_path_tmp)
-            return "vsg_cert.pem", "vsg_key.pem"
-    
-    # FALLBACK: Chaves de Teste da Adobe
-    print("DEBUG: Chaves não encontradas no radar. Ativando Fallback da Adobe.")
-    cert_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_certs.pem"
-    key_url = "https://raw.githubusercontent.com/contentauth/c2patool/main/sample/es256_private.key"
-    
-    try:
-        req = urllib.request.Request(cert_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response, open(cert_path_tmp, 'wb') as f:
-            f.write(response.read())
-            
-        req = urllib.request.Request(key_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response, open(key_path_tmp, 'wb') as f:
-            f.write(response.read())
-    except Exception as e:
-        raise Exception(f"Falha ao gerir certificados: {e}")
-        
-    return "vsg_cert.pem", "vsg_key.pem"
+# Diretório temporário seguro para processamento de ficheiros
+TEMP_DIR = "/tmp/verisignum"
+os.makedirs(TEMP_DIR, exist_ok=True)
 
 @app.get("/")
 def read_root():
-    """Endpoint de Diagnóstico - Mostra exatamente onde procurou e o que achou"""
-    locais = ["", "/etc/secrets/", "/opt/render/project/src/", "certs/"]
-    diagnostico = {}
-    chaves_encontradas = False
-    
-    for local in locais:
-        cert_ok = os.path.exists(os.path.join(local, "verisignum_cert.pem"))
-        key_ok = os.path.exists(os.path.join(local, "verisignum_key.pem"))
-        diagnostico[local or "raiz_do_projeto"] = {"cert": cert_ok, "key": key_ok}
-        if cert_ok and key_ok:
-            chaves_encontradas = True
-            
-    estado = "SUCESSO (Chaves Verisignum Injetadas e Ativas!)" if chaves_encontradas else "FALLBACK ATIVO (Usando chaves da Adobe Test)"
-        
-    return {
-        "status": "online", 
-        "motor": "V5.2 - Deep Scan Mode",
-        "estado_das_chaves": estado,
-        "raio_x_pastas": diagnostico
-    }
+    return {"status": "online", "motor": "Verisignum API (Versão Estável)"}
 
 @app.post("/v1/shield/sign")
-async def sign_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    author: str = Form("Verisignum Admin"),
-    organization: str = Form("Verisignum AI")
-):
-    # Correção: Mapeamento seguro de extensões suportadas pelo C2PA
-    ext_map = {
-        "image/jpeg": ".jpg",
-        "image/png": ".png",
-        "image/webp": ".webp",
-        "video/mp4": ".mp4",
-        "audio/mpeg": ".mp3",
-        "audio/wav": ".wav"
+async def sign_file(file: UploadFile = File(...)):
+    # Usa UUID para evitar que múltiplos uploads simultâneos reescrevam o mesmo ficheiro
+    file_id = str(uuid.uuid4())
+    input_path = os.path.join(TEMP_DIR, f"{file_id}_{file.filename}")
+    output_path = os.path.join(TEMP_DIR, f"signed_{file_id}_{file.filename}")
+    manifest_path = os.path.join(TEMP_DIR, f"manifest_{file_id}.json")
+    
+    # 1. Guardar o ficheiro recebido da interface web
+    with open(input_path, "wb") as buffer:
+        buffer.write(await file.read())
+    
+    # 2. Configuração base do manifesto (Simples e compatível com c2patool)
+    manifest = {
+        "claim_generator": "Verisignum_Shield",
+        "assertions": [
+            {
+                "label": "stds.schema-org.CreativeWork",
+                "data": {"@type": "CreativeWork"}
+            }
+        ]
     }
     
-    safe_ext = ext_map.get(file.content_type)
-    if not safe_ext:
-        safe_ext = os.path.splitext(file.filename)[1].lower()
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f)
         
-    supported_exts = [".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mp3", ".wav"]
-    if safe_ext not in supported_exts:
-        raise HTTPException(status_code=400, detail=f"Formato não suportado ({safe_ext}). Envie apenas imagens (JPG/PNG/WEBP), vídeos (MP4) ou áudios (MP3/WAV).")
-    
-    input_filename = f"upload_midia{safe_ext}"
-    output_filename = f"signed_midia{safe_ext}"
-    manifest_filename = "manifest_midia.json"
-    
-    input_path = f"/tmp/{input_filename}"
-    output_path = f"/tmp/{output_filename}"
-    manifest_path = f"/tmp/{manifest_filename}"
+    # 3. Executar o c2patool com as configurações padrão (Fallback da Adobe automático)
+    cmd = ["c2patool", input_path, "-m", manifest_path, "-o", output_path]
     
     try:
-        with open(input_path, "wb") as buffer:
-            buffer.write(await file.read())
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    except subprocess.CalledProcessError as e:
+        # Se houver erro, remove os arquivos temporários antes de lançar a exceção
+        if os.path.exists(input_path): os.remove(input_path)
+        if os.path.exists(manifest_path): os.remove(manifest_path)
+        raise HTTPException(status_code=500, detail=f"Erro ao assinar ficheiro no motor C2PA: {e.stderr}")
         
-        cert_name, key_name = get_certificates()
+    # Limpeza dos ficheiros originais e do manifesto para libertar espaço
+    if os.path.exists(input_path): os.remove(input_path)
+    if os.path.exists(manifest_path): os.remove(manifest_path)
         
-        # Verifica se estamos a usar as chaves reais baseadas no Radar
-        locais = ["", "/etc/secrets/", "/opt/render/project/src/", "certs/"]
-        usando_chaves_reais = any(os.path.exists(os.path.join(loc, "verisignum_key.pem")) for loc in locais)
+    # Definir media_type correto para retorno
+    media_type = "image/jpeg"
+    ext = file.filename.lower()
+    if ext.endswith(".png"): media_type = "image/png"
+    elif ext.endswith(".webp"): media_type = "image/webp"
+    elif ext.endswith(".mp4"): media_type = "video/mp4"
+    elif ext.endswith(".mp3"): media_type = "audio/mpeg"
         
-        # Chaves autoassinadas usam RS256, Chaves da Adobe usam ES256
-        manifest_config = {
-            "alg": "rs256" if usando_chaves_reais else "es256", 
-            "claim_generator": "Verisignum_Shield/5.2",
-            "private_key": key_name,
-            "sign_cert": cert_name,
-            "ta_url": "http://timestamp.digicert.com",
-            "assertions": [
-                {
-                    "label": "stds.schema-org.CreativeWork",
-                    "data": {
-                        "@context": "http://schema.org/",
-                        "@type": "CreativeWork",
-                        "author": [{"@type": "Person", "name": author}],
-                        "publisher": [{"@type": "Organization", "name": organization}]
-                    }
-                }
-            ]
-        }
-
-        with open(manifest_path, "w") as f:
-            json.dump(manifest_config, f)
-            
-        cmd = ["c2patool", input_filename, "-m", manifest_filename, "-o", output_filename, "-f"]
-        result = subprocess.run(cmd, cwd="/tmp", capture_output=True, text=True)
-        
-        if result.returncode != 0:
-            raise Exception(f"Erro no Motor C2PA: {result.stderr}")
-            
-        background_tasks.add_task(cleanup_files, input_path, output_path, manifest_path)
-        
-        return FileResponse(path=output_path, media_type=file.content_type, filename=f"signed_{file.filename}")
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        background_tasks.add_task(cleanup_files, input_path, manifest_path)
-        raise HTTPException(status_code=500, detail=str(e))
+    return FileResponse(output_path, media_type=media_type)
