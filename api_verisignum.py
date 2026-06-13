@@ -84,15 +84,3 @@ async def sign_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 ```
-
-### Por que esta versão é diferente?
-1. **OpenSSL Rigoroso**: Estamos a usar o próprio comando `openssl` do Linux (o Render tem este comando instalado) para gerar o certificado, em vez de depender de bibliotecas Python que falham ao formatar o certificado para o formato interno do motor da Adobe.
-2. **Configuração Explicita**: O ficheiro `.cnf` injeta o `SubjectKeyIdentifier` (a "pegada" que o COSE exige) e o `KeyUsage`. Sem isto, nenhum validador C2PA aceita a assinatura.
-3. **Padrão de Produção**: Esta é a forma que os engenheiros da Adobe utilizam para assinar ativos em ambientes automatizados.
-
-### O próximo passo:
-1. Atualize o seu `api_verisignum.py` no GitHub.
-2. **Importante:** No Render, certifique-se de que o plano permite a execução de subprocessos (todos os planos permitem).
-3. **Deploy:** `git push`. 
-
-Assim que estiver Live, teste a assinatura novamente. O validador da Adobe agora terá todas as extensões necessárias para **validar a integridade da sua assinatura** sem erros de parsing! Caso o erro persista, será o log mais limpo da história — por favor, envie-me o `stderr` caso ainda falhe.
