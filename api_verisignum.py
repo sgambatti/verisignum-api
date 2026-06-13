@@ -83,4 +83,3 @@ async def sign_file(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-```
