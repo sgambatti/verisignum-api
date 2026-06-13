@@ -28,12 +28,31 @@ def generate_compliant_cert():
     cnf_path = "/tmp/vsg.cnf"
 
     if not os.path.exists(cert_path):
-        # Criar config para OpenSSL injetar as extensões obrigatórias de integridade
+        # O padrão C2PA (COSE) é extremamente rigoroso.
+        # Ele prefere chaves Elliptic Curve (EC) e exige KeyUsage crítico.
+        cnf_content = """[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+O = Verisignum
+CN = Verisignum
+
+[v3_req]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+"""
         with open(cnf_path, "w") as f:
-            f.write("[req]\ndistinguished_name = dn\n[dn]\n[v3_req]\nbasicConstraints = CA:FALSE\nkeyUsage = digitalSignature\nsubjectKeyIdentifier = hash\nauthorityKeyIdentifier = keyid,issuer")
+            f.write(cnf_content)
         
-        # Gerar chave e certificado
-        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", key_path, "-out", cert_path, "-days", "365", "-nodes", "-config", cnf_path, "-extensions", "v3_req", "-subj", "/CN=Verisignum"], check=True)
+        # Passo 1: Gerar chave privada Elliptic Curve (prime256v1 compatível com es256)
+        subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", key_path], check=True)
+        
+        # Passo 2: Gerar certificado X.509 assinado com a chave EC e os requisitos estritos
+        subprocess.run(["openssl", "req", "-new", "-x509", "-key", key_path, "-out", cert_path, "-days", "365", "-config", cnf_path], check=True)
     
     return cert_path, key_path
 
@@ -58,7 +77,7 @@ async def sign_file(
             "claim_generator": "Verisignum_Shield/3.0",
             "private_key": key_path,
             "sign_cert": cert_path,
-	    "alg": "ps256",
+            "alg": "es256",
             "assertions": [{
                 "label": "stds.schema-org.CreativeWork",
                 "data": {
