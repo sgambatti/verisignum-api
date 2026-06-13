@@ -18,9 +18,7 @@ import {
   Loader2,
   Lock,
   FileText,
-  AlertCircle,
-  Info,
-  Check
+  AlertCircle
 } from 'lucide-react';
 
 // Interfaces TypeScript
