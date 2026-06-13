@@ -58,6 +58,7 @@ async def sign_file(
             "claim_generator": "Verisignum_Shield/3.0",
             "private_key": key_path,
             "sign_cert": cert_path,
+	    "alg": "ps256",
             "assertions": [{
                 "label": "stds.schema-org.CreativeWork",
                 "data": {
