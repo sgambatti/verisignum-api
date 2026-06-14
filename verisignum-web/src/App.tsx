@@ -269,12 +269,12 @@ export default function App() {
 
       if (!response.ok) throw new Error("Servidor de verificação inacessível.");
 
-      const data = await response.json();
+      const verifyData = await response.json();
 
       setScanStep('A analisar metadados criptográficos C2PA...');
       await new Promise(resolve => setTimeout(resolve, 1500)); // Delay para UX
 
-      if (data.has_c2pa) {
+      if (verifyData.has_c2pa) {
         setScanResult({
           score: 100,
           isAiGenerated: false,
@@ -286,19 +286,17 @@ export default function App() {
           ]
         });
       } else {
-        setScanStep('Sem selo C2PA. A simular inspeção forense de IA...');
+        setScanStep('Sem selo C2PA. A consultar motor forense da Hive AI na nuvem...');
         await new Promise(resolve => setTimeout(resolve, 1500)); // Delay para UX
 
-        const filename = lensFile.name.toLowerCase();
-        const isFakeName = filename.includes('fake') || filename.includes('ia') || filename.includes('sintetico');
+        // INTEGRAÇÃO REAL: Lê os dados processados e validados pelo backend Python
+        const aiData = verifyData.ai_analysis;
 
         setScanResult({
-          score: isFakeName ? 15 : 65,
-          isAiGenerated: isFakeName,
+          score: aiData?.score || 65,
+          isAiGenerated: aiData?.is_ai || false,
           metadataFound: false,
-          anomalies: isFakeName
-            ? ['Inconsistências severas de difusão de píxeis detetadas.', 'Possível manipulação por IA Generativa.']
-            : ['Nenhum selo de proveniência rastreável.', 'Recomenda-se precaução na aceitação desta evidência.']
+          anomalies: aiData?.anomalies || ['Nenhum selo de proveniência rastreável.']
         });
       }
     } catch (err: any) {
