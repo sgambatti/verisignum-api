@@ -51,7 +51,7 @@ export default function App() {
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
 
   // Adicionada a variável de estado para a API Key
-  const [apiKey, setApiKey] = useState('vsg_live_SUA_CHAVE_AQUI');
+  const [apiKey, setApiKey] = useState('vsg_live_4575afc746bb44a2b47f2e6a94110d4c');
 
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
 
