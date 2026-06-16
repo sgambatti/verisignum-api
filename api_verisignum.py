@@ -49,7 +49,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-api_key_header = APIKeyHeader(name="Authorization", auto_error=False)
+# MUDANÇA 1: Mudamos o nome do cabeçalho que a API procura
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 # Injeção de Dependência da Base de Dados
 def get_db():
@@ -59,15 +60,13 @@ def get_db():
     finally:
         db.close()
 
-# Fechadura de Segurança: Valida a chave enviada contra o Banco de Dados
+# MUDANÇA 2: Ajustamos a lógica para ler a chave diretamente
 def verify_api_key(api_key: str = Security(api_key_header), db: Session = Depends(get_db)):
     if not api_key:
-        raise HTTPException(status_code=401, detail="Acesso Negado: API Key não fornecida no cabeçalho 'Authorization'.")
+        raise HTTPException(status_code=401, detail="Acesso Negado: API Key não fornecida no cabeçalho 'X-API-Key'.")
     
-    # Remove a palavra 'Bearer ' se o cliente a enviar
-    token = api_key.replace("Bearer ", "") if "Bearer " in api_key else api_key
-    
-    client = db.query(Client).filter(Client.api_key == token).first()
+    # Como não usamos mais a palavra "Bearer", lemos a chave limpa
+    client = db.query(Client).filter(Client.api_key == api_key).first()
     if not client:
         raise HTTPException(status_code=403, detail="Acesso Negado: API Key inválida ou revogada.")
     return client

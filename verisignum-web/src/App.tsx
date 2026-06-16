@@ -114,7 +114,7 @@ export default function App() {
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}` // Cabeçalho de autorização adicionado aqui
+          "X-API-Key": apiKey // Substituímos o Authorization pelo cabeçalho personalizado
         },
         body: formData
       });
