@@ -67,7 +67,7 @@ const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('shield'); // Começa no Shield para teste rápido
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [apiKey, setApiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
+  const [apiKey, setApiKey] = useState<string>('vsg_live_5b9d5bfa1b1544079de0871ddc567623');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
