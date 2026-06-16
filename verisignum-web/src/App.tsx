@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Shield, Eye, Activity, FileCheck, CheckCircle2,
-  Send, Loader2, Lock, AlertCircle
+  Send, Loader2, Lock, AlertCircle, Key
 } from 'lucide-react';
 
 interface Asset {
@@ -50,8 +50,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('shield');
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
 
-  // Adicionada a variável de estado para a API Key
-  const [apiKey, setApiKey] = useState('vsg_live_4575afc746bb44a2b47f2e6a94110d4c');
+  // A chave agora começa vazia para ser preenchida na tela
+  const [apiKey, setApiKey] = useState('');
 
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
 
@@ -95,7 +95,7 @@ export default function App() {
 
   const handleShieldSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!shieldFile) return;
+    if (!shieldFile || !apiKey) return;
 
     setIsShielding(true);
     setShieldResult(null);
@@ -108,14 +108,13 @@ export default function App() {
       formData.append("file", shieldFile);
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
-      formData.append("api_key", apiKey); // <-- Passamos a chave junto com o ficheiro!
+      formData.append("api_key", apiKey); // <-- A chave digitada na tela vai aqui!
 
       setShieldStep('A processar assinatura C2PA...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
-        // Removemos totalmente o bloco 'headers'
-        body: formData
+        body: formData // Sem headers extra, evita bloqueio de rede
       });
 
       if (!response.ok) {
@@ -251,6 +250,25 @@ export default function App() {
       <main className="flex-1 overflow-y-auto p-8">
         {activeTab === 'shield' && (
           <form onSubmit={handleShieldSubmit} className="space-y-4 max-w-xl">
+            
+            {/* NOVO CAMPO DE API KEY NA TELA */}
+            <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-4 shadow-sm">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-400 flex items-center gap-2">
+                  <Key size={14} className="text-emerald-500" />
+                  Credencial de Acesso (API Key)
+                </label>
+                <input 
+                  type="text" 
+                  value={apiKey} 
+                  onChange={(e) => setApiKey(e.target.value)} 
+                  placeholder="Cole aqui a chave gerada no Swagger (ex: vsg_live_...)"
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-emerald-400 font-mono focus:ring-1 focus:ring-emerald-500 outline-none placeholder-gray-600" 
+                  required
+                />
+              </div>
+            </div>
+
             <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 shadow-sm">
                 <div>
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">Assinatura C2PA</h3>
@@ -296,7 +314,8 @@ export default function App() {
                     </div>
                 </div>
 
-                <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:bg-gray-700 transition-colors">
+                {/* Botão agora exige a chave para funcionar */}
+                <button type="submit" disabled={isShielding || !shieldFile || !apiKey} className="w-full bg-indigo-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:bg-gray-700 transition-colors">
                   {isShielding ? <><Loader2 className="animate-spin" size={16} /> Processando na Nuvem...</> : 'Assinar Mídia'}
                 </button>
 
