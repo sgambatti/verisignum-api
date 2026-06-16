@@ -5,24 +5,18 @@ import {
   Code, 
   FileCheck, 
   Activity, 
-  AlertTriangle, 
   CheckCircle2, 
   Terminal, 
   Key, 
-  RefreshCw, 
-  Play, 
   Copy, 
-  ExternalLink,
   Sparkles,
   Send,
   Loader2,
   Lock,
   FileText,
   AlertCircle,
-  Users,
   CreditCard,
   Plus,
-  Database,
   Crown
 } from 'lucide-react';
 
@@ -94,9 +88,10 @@ export default function App() {
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
 
   const [shieldFile, setShieldFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
   const [author, setAuthor] = useState<string>('');
   const [org, setOrg] = useState<string>('');
-  const [license, setLicense] = useState<string>('CC-BY-4.0');
   const [isShielding, setIsShielding] = useState<boolean>(false);
   const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
@@ -151,13 +146,22 @@ export default function App() {
     }
   };
 
-  const generateNewKey = (): void => {
-    const chars = 'abcdef0123456789';
-    let result = 'vsg_live_';
-    for (let i = 0; i < 22; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
+  const handleShieldFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files ? e.target.files[0] : null;
+    if (file && file.type === 'application/pdf') {
+      setCopyStatus({ hash: false, key: false, error: "A assinatura de PDFs está bloqueada nesta versão de demonstração." });
+      setShieldFile(null);
+      setPreviewUrl(null);
+      e.target.value = '';
+      return;
     }
-    setApiKey(result);
+    setCopyStatus({ hash: false, key: false, error: null });
+    setShieldFile(file);
+    if (file) {
+      setPreviewUrl(URL.createObjectURL(file));
+    } else {
+      setPreviewUrl(null);
+    }
   };
 
   const handleCreateClient = async (e: React.FormEvent) => {
@@ -210,10 +214,11 @@ export default function App() {
 
   const handleShieldSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    if (!shieldFile) return;
+    if (!shieldFile || !apiKey) return;
 
     setIsShielding(true);
     setShieldResult(null);
+    setSignedMediaUrl(null);
     setShieldStep('A estabelecer ligação com a API Verisignum no Render...');
     setCopyStatus(prev => ({ ...prev, error: null }));
 
@@ -261,13 +266,14 @@ export default function App() {
       } else {
         const signedBlob = await response.blob();
         const downloadUrl = window.URL.createObjectURL(signedBlob);
+        setSignedMediaUrl(downloadUrl);
         const link = document.createElement("a");
         link.href = downloadUrl;
         link.download = `verisignum_${shieldFile.name}`;
         document.body.appendChild(link);
         link.click();
         link.remove();
-        window.URL.revokeObjectURL(downloadUrl);
+        // window.URL.revokeObjectURL(downloadUrl); foi removido para permitir o clique no botão "Descarregar" posteriormente
 
         setShieldResult({
           hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01',
@@ -428,12 +434,23 @@ export default function App() {
       <aside className="w-64 bg-[#161B22] border-r border-[#30363D] flex flex-col justify-between shrink-0">
         <div>
           <div className="p-6 border-b border-[#30363D] flex items-center gap-3">
-            <div className="p-2 bg-indigo-600 rounded-lg text-white shadow-[0_0_15px_rgba(79,70,229,0.4)]">
-              <Shield size={24} className="animate-pulse" />
+            {/* Nova Logo Inserida */}
+            <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+              <img 
+                src="/logo.png" 
+                alt="Verisignum Logo" 
+                className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" 
+                onError={(e) => { 
+                  e.currentTarget.style.display = 'none'; 
+                  e.currentTarget.parentElement?.querySelector('svg')?.classList.remove('hidden'); 
+                }} 
+              />
+              {/* Fallback (Escudo) caso a imagem logo.png não seja encontrada */}
+              <Shield size={24} className="text-amber-500 hidden animate-pulse" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
-              <span className="text-[10px] uppercase tracking-widest text-indigo-400 font-mono">Padrão Ouro Digital</span>
+              <span className="text-[10px] uppercase tracking-widest text-amber-400 font-mono">Padrão Ouro Digital</span>
             </div>
           </div>
           
