@@ -36,10 +36,12 @@ interface Asset {
   author: string;
 }
 
+// Interface corrigida para evitar o erro TS7053 (permite chaves dinâmicas como 'key-123')
 interface CopyStatus {
-  hash: boolean;
-  key: boolean;
-  error: string | null;
+  hash?: boolean;
+  key?: boolean;
+  error?: string | null;
+  [key: string]: any; 
 }
 
 interface ShieldResult {
@@ -81,9 +83,10 @@ const INITIAL_CLIENTS: ClientTenant[] = [
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/clients";
+const RENDER_COPILOT_URL = "https://verisignum-api.onrender.com/v1/copilot/chat";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('dashboard'); 
+  const [activeTab, setActiveTab] = useState<string>('admin'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
   const [apiKey, setApiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
@@ -164,7 +167,6 @@ export default function App() {
     setIsCreatingClient(true);
     
     try {
-      // Tenta chamar a API real no Render
       const response = await fetch(`${RENDER_ADMIN_CLIENTS_URL}?name=${encodeURIComponent(newClientName)}`, {
         method: 'POST',
         headers: { 'Accept': 'application/json' }
@@ -187,7 +189,6 @@ export default function App() {
       setNewClientName('');
       
     } catch (error) {
-      // Fallback Simulado caso a API esteja offline ou com bloqueio de CORS
       console.warn("API de Admin offline. A simular criação local...");
       const mockKey = 'vsg_live_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       
@@ -224,7 +225,7 @@ export default function App() {
       formData.append("file", shieldFile);
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
-      formData.append("api_key", apiKey); // Usa a chave de API definida na aba API Hub
+      formData.append("api_key", apiKey);
 
       setShieldStep('A processar imagem e a invocar o motor de assinatura remotamente...');
 
@@ -292,12 +293,12 @@ export default function App() {
       
       let mensagemErro = err.message;
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setShieldStep('Servidor inacessível (CORS/Offline). A iniciar simulação local de fallback...');
+        setShieldStep('Servidor inacessível. A iniciar simulação local de fallback...');
         
         setTimeout(() => {
           setShieldResult({
             hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Simulado)',
-            manifest: JSON.stringify({ "status": "Assinatura simulada (API offline/CORS)", "filename": shieldFile.name }, null, 2)
+            manifest: JSON.stringify({ "status": "Assinatura simulada (API offline)", "filename": shieldFile.name }, null, 2)
           });
 
           const newAsset: Asset = {
@@ -390,24 +391,19 @@ export default function App() {
     setIsChatLoading(true);
 
     try {
-      const systemPrompt = "Você é o Verisignum Compliance Copilot. Responda em Português.";
-      
-      const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=', {
+      const response = await fetch(RENDER_COPILOT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: inputMessage }] }],
-          systemInstruction: { parts: [{ text: systemPrompt }] }
-        })
+        body: JSON.stringify({ message: userMsg.text })
       });
 
+      if (!response.ok) throw new Error('Falha no proxy da API.');
       const result = await response.json();
-      const answer = result?.candidates?.[0]?.content?.parts?.[0]?.text || 'Tive um problema temporário. Tente novamente.';
       
-      setChatMessages(prev => [...prev, { role: 'assistant', text: answer }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: result.reply }]);
     } catch (error) {
       console.error(error);
-      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Erro ao ligar ao servidor da Verisignum.' }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Erro de ligação ao servidor da Verisignum.' }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -429,7 +425,7 @@ export default function App() {
       )}
 
       {/* Sidebar */}
-      <aside className="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between">
+      <aside className="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between shrink-0">
         <div>
           <div className="p-6 border-b border-[#30363d] flex items-center gap-3">
             <div className="p-2 bg-indigo-600 rounded-lg text-white">
@@ -496,7 +492,7 @@ export default function App() {
 
         <div className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
           
-          {/* NOVA ABA: ADMIN (Gestão de Clientes e Faturação) */}
+          {/* ABA: ADMIN */}
           {activeTab === 'admin' && (
             <div className="space-y-6">
               <div className="flex justify-between items-end">
@@ -511,8 +507,6 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* Criar Novo Cliente */}
                 <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-6 rounded-xl h-fit">
                   <h3 className="text-md font-bold text-white flex items-center gap-2 mb-4"><Plus size={18} className="text-indigo-400"/> Novo Inquilino (Tenant)</h3>
                   <form onSubmit={handleCreateClient} className="space-y-4">
@@ -537,12 +531,11 @@ export default function App() {
                   </form>
                   <div className="mt-4 p-3 bg-emerald-500/5 border border-emerald-500/10 rounded-lg">
                     <p className="text-[10px] text-gray-400 leading-relaxed">
-                      Ao criar um inquilino, o PostgreSQL gera um `tenant_id` isolado. A chave gerada servirá para faturar todo o uso desta instituição.
+                      Ao criar um inquilino, o PostgreSQL gera um tenant_id isolado. A chave gerada servirá para faturar todo o uso desta instituição.
                     </p>
                   </div>
                 </div>
 
-                {/* Lista de Clientes e Consumo */}
                 <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden">
                   <div className="px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#1c2128]">
                     <h3 className="font-bold text-white text-sm">Contas Ativas e Consumo</h3>
@@ -595,9 +588,8 @@ export default function App() {
               </div>
             </div>
           )}
-
-          {/* ... Restante do código (Dashboard, Shield, Lens, API, Copilot) mantém-se igual ... */}
           
+          {/* ABA: DASHBOARD CENTRAL */}
           {activeTab === 'dashboard' && (
              <div className="space-y-6">
              <div className="flex justify-between items-center">
@@ -650,27 +642,225 @@ export default function App() {
            </div>
           )}
 
+          {/* ABA: SHIELD (ASSINAR) */}
+          {activeTab === 'shield' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Shield className="text-indigo-500" /> Assinatura C2PA
+                  </h3>
+                  <p className="text-sm text-gray-400">Teste o upload de um arquivo com a sua Chave de API.</p>
+                </div>
+                
+                <form onSubmit={handleShieldSubmit} className="space-y-4">
+                  <div className="border-2 border-dashed border-[#30363d] p-8 text-center cursor-pointer bg-[#0d1117] rounded-xl hover:border-indigo-500 transition-all">
+                    <FileCheck size={40} className="text-indigo-500 mx-auto mb-3" />
+                    <input 
+                      type="file" 
+                      accept="image/jpeg, image/png, image/webp, video/mp4, audio/mpeg, audio/wav"
+                      onChange={(e) => setShieldFile(e.target.files ? e.target.files[0] : null)}
+                      className="hidden" 
+                      id="shield-file-input"
+                    />
+                    <label htmlFor="shield-file-input" className="text-white text-sm cursor-pointer px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg hover:bg-[#30363d]">
+                      {shieldFile ? shieldFile.name : 'Selecionar Mídia'}
+                    </label>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-400">Autor</label>
+                        <input type="text" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none" />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-xs font-semibold text-gray-400">Organização</label>
+                        <input type="text" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none" />
+                      </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-gray-400">Licença</label>
+                    <select value={license} onChange={(e) => setLicense(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none">
+                      <option value="CC-BY-4.0">Creative Commons 4.0</option>
+                      <option value="Proprietary">Uso Proprietário</option>
+                    </select>
+                  </div>
+
+                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:bg-gray-700 transition-colors">
+                    {isShielding ? <><Loader2 className="animate-spin" size={16} /> Processando...</> : 'Assinar Mídia'}
+                  </button>
+
+                  {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center">{shieldStep}</p>}
+                </form>
+              </div>
+
+              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
+                 <h3 className="text-lg font-bold text-white mb-4">Certificado Digital C2PA</h3>
+                 {shieldResult ? (
+                    <div className="space-y-4">
+                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
+                        <CheckCircle2 className="text-emerald-400" size={24} />
+                        <div>
+                            <p className="text-sm font-semibold text-white">Assinatura Concluída</p>
+                            <p className="text-xs text-gray-400">O ficheiro foi descarregado automaticamente.</p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-mono font-semibold text-gray-400">Hash SHA-256</span>
+                        <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] text-xs text-emerald-400 font-mono truncate">
+                          {shieldResult.hash}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-xs font-mono font-semibold text-gray-400">Manifesto JSON</span>
+                        <pre className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] text-[10px] font-mono text-gray-300 overflow-x-auto h-32">
+                          {shieldResult.manifest}
+                        </pre>
+                      </div>
+                    </div>
+                 ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-12 bg-[#0d1117] border border-[#30363d] rounded-xl text-gray-500">
+                      <Lock size={48} className="mb-4 text-gray-700" />
+                      <p className="font-semibold text-sm">Aguardando Ficheiro</p>
+                    </div>
+                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ABA: LENS (VERIFICAR) */}
+          {activeTab === 'lens' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
+                <div>
+                  <h3 className="text-xl font-bold text-white flex items-center gap-2">Scanner Forense</h3>
+                  <p className="text-sm text-gray-400">Verifique a proveniência e integridade do arquivo.</p>
+                </div>
+                <form onSubmit={handleLensScan} className="space-y-4">
+                  <div className="border-2 border-dashed border-[#30363d] p-8 text-center cursor-pointer bg-[#0d1117] rounded-xl hover:border-indigo-500 transition-all">
+                    <Activity size={40} className="text-indigo-500 mx-auto mb-3" />
+                    <input type="file" onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} className="hidden" id="lens-file-input" />
+                    <label htmlFor="lens-file-input" className="text-white text-sm cursor-pointer px-4 py-2 bg-[#21262d] border border-[#30363d] rounded-lg hover:bg-[#30363d]">
+                      {lensFile ? lensFile.name : 'Selecionar Arquivo para Análise'}
+                    </label>
+                  </div>
+                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white p-3 rounded-lg flex items-center justify-center gap-2 hover:bg-indigo-700 disabled:bg-gray-700 transition-colors">
+                    {isScanning ? <><Loader2 className="animate-spin" size={16} /> Analisando Metadados...</> : 'Verificar Integridade'}
+                  </button>
+                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center">{scanStep}</p>}
+                </form>
+              </div>
+
+              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
+                 <h3 className="text-lg font-bold text-white mb-4">Relatório de Análise</h3>
+                 {scanResult ? (
+                    <div className="p-5 bg-[#0d1117] border border-[#30363d] rounded-xl">
+                      <p className="text-sm font-semibold text-white mb-2">Resultado da Análise Forense:</p>
+                      <p className={`text-3xl font-bold ${scanResult.score > 50 ? 'text-emerald-400' : 'text-red-400'}`}>Score: {scanResult.score}% Humano</p>
+                      <ul className="mt-4 space-y-2">
+                          {scanResult.anomalies.map((anom, idx) => (
+                            <li key={idx} className="text-xs text-gray-300 flex gap-2 items-start bg-[#161b22] p-2 rounded border border-[#30363d]">
+                              <span className="text-indigo-500 mt-0.5">•</span> {anom}
+                            </li>
+                          ))}
+                      </ul>
+                    </div>
+                 ) : (
+                    <div className="h-full flex flex-col items-center justify-center text-center p-12 bg-[#0d1117] border border-[#30363d] rounded-xl text-gray-500">
+                      <Activity size={48} className="mb-4 text-gray-700" />
+                      <p className="font-semibold text-sm">Pronto para Diagnóstico</p>
+                    </div>
+                 )}
+              </div>
+            </div>
+          )}
+
+          {/* ABA: API DEVELOPER HUB */}
           {activeTab === 'api' && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
                 <div>
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                    <Key className="text-indigo-500" /> Teste de API Local
+                    <Key className="text-indigo-500" /> API Access Keys
                   </h3>
-                  <p className="text-xs text-gray-400">Simule requisições como se fosse um cliente.</p>
+                  <p className="text-xs text-gray-400">Automatize a assinatura criptográfica.</p>
                 </div>
                 <div className="space-y-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-gray-400">Chave de Desenvolvimento</label>
-                    <input 
-                        type="text" 
-                        value={apiKey} 
-                        onChange={(e) => setApiKey(e.target.value)} 
-                        className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-emerald-400 font-mono focus:ring-1 focus:ring-emerald-500 outline-none" 
-                      />
+                    <label className="text-xs font-semibold text-gray-400">A Sua Chave de Desenvolvimento</label>
+                    <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex items-center justify-between font-mono text-xs">
+                      <span className="text-emerald-400 overflow-hidden text-ellipsis mr-2">
+                        {isKeyVisible ? apiKey : '••••••••••••••••••••••••••••••••'}
+                      </span>
+                      <div className="flex gap-2 items-center flex-shrink-0">
+                        <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-gray-400 hover:text-white text-xs px-1">
+                          {isKeyVisible ? 'Ocultar' : 'Revelar'}
+                        </button>
+                        <button onClick={() => safeCopyToClipboard(apiKey, 'key')} className="text-gray-400 hover:text-white">
+                          {copyStatus.key ? <CheckCircle2 size={14} className="text-emerald-400"/> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <button onClick={generateNewKey} className="w-full bg-[#21262d] border border-[#30363d] text-white text-sm font-semibold p-2.5 rounded-lg hover:bg-[#30363d] transition-all flex items-center justify-center gap-2">
+                    <RefreshCw size={14} /> Regenerar Credenciais
+                  </button>
+                </div>
+              </div>
+              <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden flex flex-col justify-between">
+                <div>
+                  <div className="px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#1c2128]">
+                    <div className="flex items-center gap-2">
+                      <Terminal size={18} className="text-indigo-500" />
+                      <h3 className="font-bold text-white text-sm">Integração da API</h3>
+                    </div>
+                    <div className="flex gap-2">
+                      {(['curl', 'python', 'javascript'] as const).map((lang) => (
+                        <button 
+                          key={lang}
+                          onClick={() => setSelectedLanguage(lang)}
+                          className={`text-xs px-3 py-1.5 rounded-md font-mono transition-all ${selectedLanguage === lang ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white hover:bg-[#21262d]'}`}
+                        >
+                          {lang.toUpperCase()}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="p-6 bg-[#0d1117] font-mono text-xs overflow-x-auto h-64 border-b border-[#30363d]">
+                    <pre className="text-indigo-300">{codeSnippets[selectedLanguage]}</pre>
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ABA: COPILOT SEGURO */}
+          {activeTab === 'copilot' && (
+            <div className="max-w-3xl mx-auto bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[600px] shadow-sm">
+                <div className="p-4 border-b border-[#30363d] font-bold text-white flex items-center justify-between">
+                  <div className="flex items-center gap-2"><Lock size={16} className="text-emerald-500"/> Copilot Seguro (Proxy API)</div>
+                </div>
+                <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-[#0d1117]">
+                  {chatMessages.map((msg, idx) => (
+                      <div key={idx} className={`p-4 rounded-xl text-sm leading-relaxed ${msg.role === 'assistant' ? 'bg-[#161b22] text-gray-300 border border-[#30363d] mr-12' : 'bg-indigo-600 text-white ml-12 shadow-md'}`}>
+                        {msg.text}
+                      </div>
+                  ))}
+                  {isChatLoading && <Loader2 className="animate-spin text-indigo-500 mx-auto" />}
+                </div>
+                <div className="p-4 border-t border-[#30363d] bg-[#161b22] rounded-b-xl flex gap-3">
+                  <input 
+                      value={inputMessage} 
+                      onChange={e => setInputMessage(e.target.value)} 
+                      onKeyDown={e => e.key === 'Enter' && sendMessageToGemini()} 
+                      placeholder="Pergunte sobre conformidade C2PA..."
+                      className="flex-1 bg-[#0d1117] px-4 py-3 text-white border border-[#30363d] rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500" 
+                  />
+                  <button onClick={sendMessageToGemini} disabled={isChatLoading || !inputMessage.trim()} className="bg-indigo-600 px-5 py-3 text-white rounded-lg hover:bg-indigo-700 disabled:bg-gray-700 transition-colors shadow-sm">
+                    <Send size={18}/>
+                  </button>
+                </div>
             </div>
           )}
 
