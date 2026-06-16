@@ -108,14 +108,13 @@ export default function App() {
       formData.append("file", shieldFile);
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
+      formData.append("api_key", apiKey); // <-- Passamos a chave junto com o ficheiro!
 
       setShieldStep('A processar assinatura C2PA...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
-        headers: {
-          "X-API-Key": apiKey // Substituímos o Authorization pelo cabeçalho personalizado
-        },
+        // Removemos totalmente o bloco 'headers'
         body: formData
       });
 

@@ -102,9 +102,17 @@ async def sign_file(
     file: UploadFile = File(...),
     author: str = Form("Verisignum Admin"),
     organization: str = Form("Verisignum AI"),
-    client: Client = Depends(verify_api_key), # Exige Chave de API Válida!
+    api_key: str = Form(...), # Recebemos a chave como um campo do formulário!
     db: Session = Depends(get_db)
 ):
+    # Validação da Chave feita diretamente aqui para evitar bloqueios de CORS
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Acesso Negado: API Key não fornecida.")
+    
+    client = db.query(Client).filter(Client.api_key == api_key).first()
+    if not client:
+        raise HTTPException(status_code=403, detail="Acesso Negado: API Key inválida ou revogada.")
+
     input_path = f"/tmp/{file.filename}"
     output_path = f"/tmp/signed_{file.filename}"
     manifest_path = f"/tmp/manifest_{file.filename}.json"
