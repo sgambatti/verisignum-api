@@ -48,7 +48,6 @@ const RENDER_COPILOT_URL = "https://verisignum-api.onrender.com/v1/copilot/chat"
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('shield');
-  const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
 
   // A chave agora começa vazia para ser preenchida na tela
   const [apiKey, setApiKey] = useState('');
@@ -61,7 +60,6 @@ export default function App() {
   const [org, setOrg] = useState('');
   const [isShielding, setIsShielding] = useState(false);
   const [shieldStep, setShieldStep] = useState('');
-  const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
   const [signedMediaUrl, setSignedMediaUrl] = useState<string | null>(null);
 
   const [lensFile, setLensFile] = useState<File | null>(null);
@@ -124,11 +122,6 @@ export default function App() {
 
       const signedBlob = await response.blob();
       setSignedMediaUrl(window.URL.createObjectURL(signedBlob));
-
-      setShieldResult({
-        hash: 'sha256:d8a21...',
-        manifest: JSON.stringify({ "status": "Assinatura injetada", "signer": org || "Verisignum AI" }, null, 2)
-      });
 
     } catch (err: any) {
       setCopyStatus({ hash: false, key: false, error: `Falha: ${err.message}` });
