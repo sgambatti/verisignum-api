@@ -58,6 +58,20 @@ class Client(Base):
 
 Base.metadata.create_all(bind=engine)
 
+# --- AUTO-CORREÇÃO DO BANCO DE DADOS (MIGRAÇÃO) ---
+from sqlalchemy import text
+try:
+    with engine.connect() as conn:
+        # Tenta adicionar as colunas novas se elas não existirem
+        conn.execute(text("ALTER TABLE clients ADD COLUMN is_active BOOLEAN DEFAULT FALSE;"))
+        conn.execute(text("ALTER TABLE clients ADD COLUMN stripe_customer_id VARCHAR;"))
+        conn.commit()
+        print("Colunas de pagamento adicionadas ao PostgreSQL com sucesso!")
+except Exception as e:
+    # Se der erro, é porque as colunas já existem, então ignoramos em silêncio.
+    pass
+# --------------------------------------------------
+
 def get_db():
     db = SessionLocal()
     try:
