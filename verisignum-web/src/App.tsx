@@ -9,15 +9,11 @@ import {
   CheckCircle2, 
   Terminal, 
   Key, 
-  RefreshCw, 
-  Play, 
-  Copy, 
   ExternalLink,
   Sparkles,
   Send,
   Loader2,
   Lock,
-  FileText,
   AlertCircle
 } from 'lucide-react';
 
@@ -36,6 +32,7 @@ interface CopyStatus {
   hash: boolean;
   key: boolean;
   error: string | null;
+  [key: string]: any;
 }
 
 interface ShieldResult {
@@ -84,7 +81,7 @@ const RENDER_BILLING_URL = "https://verisignum-api.onrender.com/v1/billing/creat
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('admin'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [apiKey, setApiKey] = useState<string>('vsg_live_vsg_live_7b0204eab45743d392d366774c0a1090');
+  const [apiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   
   const [copyStatus, setCopyStatus] = useState<CopyStatus | any>({ hash: false, key: false, error: null });
@@ -92,17 +89,12 @@ export default function App() {
   const [shieldFile, setShieldFile] = useState<File | null>(null);
   const [author, setAuthor] = useState<string>('');
   const [org, setOrg] = useState<string>('');
-  const [license, setLicense] = useState<string>('CC-BY-4.0');
   const [isShielding, setIsShielding] = useState<boolean>(false);
-  const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
 
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-
-  const [selectedLanguage, setSelectedLanguage] = useState<'curl' | 'python' | 'javascript'>('curl');
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', text: 'Olá! Sou o seu Verisignum Compliance Copilot. Como posso ajudar hoje?' }
@@ -117,10 +109,10 @@ export default function App() {
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
   const safeCopyToClipboard = (text: string, type: 'hash' | 'key' | string): void => {
-    setCopyStatus(prev => ({ ...prev, error: null }));
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
     const setSuccess = () => {
-      setCopyStatus(prev => ({ ...prev, [type]: true }));
-      setTimeout(() => setCopyStatus(prev => ({ ...prev, [type]: false })), 2000);
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, [type]: true }));
+      setTimeout(() => setCopyStatus((prev: CopyStatus) => ({ ...prev, [type]: false })), 2000);
     };
 
     if (navigator.clipboard) {
@@ -143,21 +135,11 @@ export default function App() {
       if (successful) successCallback();
       else throw new Error('Fallback falhou');
     } catch (err) {
-      setCopyStatus(prev => ({ ...prev, error: "Cópia automática indisponível." }));
-      setTimeout(() => setCopyStatus(prev => ({ ...prev, error: null })), 5000);
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Cópia automática indisponível." }));
+      setTimeout(() => setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null })), 5000);
     }
   };
 
-  const generateNewKey = (): void => {
-    const chars = 'abcdef0123456789';
-    let result = 'vsg_live_';
-    for (let i = 0; i < 22; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    setApiKey(result);
-  };
-
-  // --- CORREÇÃO DA FUNÇÃO AQUI ---
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClientName.trim()) return;
@@ -175,7 +157,6 @@ export default function App() {
       const data = await response.json();
       
       const newTenant: ClientTenant = {
-        // Usa o ID real vindo do banco. Se falhar, usa um Número Aleatório (nunca letras!) para não quebrar o banco
         id: data.client_id ? data.client_id.toString() : Math.floor(Math.random() * 100000).toString(),
         name: data.client_name || newClientName,
         apiKey: data.api_key,
@@ -192,7 +173,6 @@ export default function App() {
       const mockKey = 'vsg_live_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       
       const newTenant: ClientTenant = {
-        // Correção CRÍTICA: Gera um Número Inteiro aleatório para não quebrar o PostgreSQL na Stripe
         id: Math.floor(Math.random() * 100000).toString(),
         name: newClientName,
         apiKey: mockKey,
@@ -216,7 +196,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' // Certifique-se de que este é o ID do plano de $499 ativo (Modo Live)
+          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
         })
       });
 
@@ -230,7 +210,7 @@ export default function App() {
       
     } catch (error: any) {
       console.error(error);
-      setCopyStatus(prev => ({ ...prev, error: `Erro Stripe: ${error.message}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Erro Stripe: ${error.message}` }));
     } finally {
       setBillingLoading(null);
     }
@@ -242,8 +222,7 @@ export default function App() {
 
     setIsShielding(true);
     setShieldResult(null);
-    setShieldStep('A estabelecer ligação com a API Verisignum no Render...');
-    setCopyStatus(prev => ({ ...prev, error: null }));
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 45000); 
@@ -253,8 +232,6 @@ export default function App() {
       formData.append("file", shieldFile);
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
-
-      setShieldStep('A processar imagem e a invocar o motor de assinatura remotamente...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
@@ -273,8 +250,6 @@ export default function App() {
         throw new Error(errorMsg);
       }
 
-      setShieldStep('A descarregar ficheiro binário assinado digitalmente...');
-
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
          const data = await response.json();
@@ -283,7 +258,7 @@ export default function App() {
                hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Verificado)',
                manifest: JSON.stringify({ "status": "Assinado no backend via motor oficial", "filename": data.filename }, null, 2)
              });
-             setCopyStatus(prev => ({ ...prev, error: null }));
+             setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
          }
       } else {
         const signedBlob = await response.blob();
@@ -320,8 +295,6 @@ export default function App() {
       
       let mensagemErro = err.message;
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setShieldStep('Servidor inacessível (CORS/Offline). A iniciar simulação local de fallback...');
-        
         setTimeout(() => {
           setShieldResult({
             hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Simulado)',
@@ -339,7 +312,7 @@ export default function App() {
           };
           setAssets([newAsset, ...assets]);
           setIsShielding(false);
-          setCopyStatus(prev => ({ 
+          setCopyStatus((prev: CopyStatus) => ({ 
             ...prev, 
             error: "Aviso: A ligação à API Render falhou. Certifique-se de que a API está online." 
           }));
@@ -347,7 +320,7 @@ export default function App() {
         return; 
       }
 
-      setCopyStatus(prev => ({ ...prev, error: `Falha: ${mensagemErro}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${mensagemErro}` }));
       setIsShielding(false);
     }
   };
@@ -358,7 +331,6 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setScanStep('A enviar para o VerisignumLens na nuvem...');
 
     try {
       const formData = new FormData();
@@ -373,8 +345,7 @@ export default function App() {
 
       const verifyData = await response.json();
 
-      setScanStep('A analisar metadados criptográficos C2PA...');
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Delay para UX
+      await new Promise(resolve => setTimeout(resolve, 1500)); 
 
       if (verifyData.has_c2pa) {
         setScanResult({
@@ -388,8 +359,7 @@ export default function App() {
           ]
         });
       } else {
-        setScanStep('Sem selo C2PA. A consultar motor forense da Hive AI na nuvem...');
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Delay para UX
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         const aiData = verifyData.ai_analysis;
 
@@ -402,10 +372,9 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Erro no Lens:", err);
-      setCopyStatus(prev => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
     } finally {
       setIsScanning(false);
-      setScanStep('');
     }
   };
 
@@ -413,7 +382,7 @@ export default function App() {
     if (!inputMessage.trim()) return;
 
     const userMsg: ChatMessage = { role: 'user', text: inputMessage };
-    setChatMessages(prev => [...prev, userMsg]);
+    setChatMessages((prev: ChatMessage[]) => [...prev, userMsg]);
     setInputMessage('');
     setIsChatLoading(true);
 
@@ -427,19 +396,13 @@ export default function App() {
       if (!response.ok) throw new Error('Falha no proxy da API.');
       const result = await response.json();
       
-      setChatMessages(prev => [...prev, { role: 'assistant', text: result.reply }]);
+      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: result.reply }]);
     } catch (error) {
       console.error(error);
-      setChatMessages(prev => [...prev, { role: 'assistant', text: 'Erro de ligação ao servidor da Verisignum.' }]);
+      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Erro de ligação ao servidor da Verisignum.' }]);
     } finally {
       setIsChatLoading(false);
     }
-  };
-
-  const codeSnippets = {
-    curl: 'curl -X POST "https://api.verisignum.com/v1/shield/sign" \\\n  -H "Authorization: Bearer ' + apiKey + '" \\\n  -H "Content-Type: multipart/form-data" \\\n  -F "file=@prova_oral_aluno.mp4" \\\n  -F "author=' + (author || 'Universidade XYZ') + '" \\\n  -F "organization=' + (org || 'EdTech Portugal') + '"',
-    python: 'import requests\n\nurl = "https://api.verisignum.com/v1/shield/sign"\nheaders = {\n    "Authorization": "Bearer ' + apiKey + '"\n}\nfiles = {\n    "file": open("prova_oral_aluno.mp4", "rb")\n}\ndata = {\n    "author": "' + (author || 'Universidade XYZ') + '",\n    "organization": "' + (org || 'EdTech Portugal') + '",\n    "license": "' + license + '"\n}\n\nresponse = requests.post(url, headers=headers, files=files, data=data)\nprint(response.json())',
-    javascript: 'const formData = new FormData();\nformData.append("file", fileInput.files[0]);\nformData.append("author", "' + (author || 'Universidade XYZ') + '");\nformData.append("organization", "' + (org || 'EdTech Portugal') + '");\n\nfetch("https://api.verisignum.com/v1/shield/sign", {\n  method: "POST",\n  headers: {\n    "Authorization": "Bearer ' + apiKey + '"\n  },\n  body: formData\n})\n.then(res => res.json())\n.then(data => console.log(data));'
   };
 
   return (
@@ -506,8 +469,8 @@ export default function App() {
       <main className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 border-b border-[#30363d] px-8 flex items-center justify-between bg-[#161b22]">
           <div className="flex items-center gap-2">
-            <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono font-medium">MVP Conectado</span>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-medium">Render Cloud API (TSX)</span>
+            <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono font-medium border border-indigo-500/20">MVP Conectado</span>
+            <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-medium border border-emerald-500/20">Render Cloud API</span>
           </div>
           <div className="flex items-center gap-4">
             <button onClick={() => setActiveTab('copilot')} className="flex items-center gap-2 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-lg text-sm hover:bg-indigo-600 hover:text-white transition-all">
@@ -523,7 +486,7 @@ export default function App() {
             <div className="space-y-6">
               <div className="flex justify-between items-end">
                 <div>
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão de Clientes (Multi-Tenant)</h2>
+                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
                   <p className="text-sm text-gray-400 mt-1">Crie chaves de API para novas faculdades e gere links de faturação na Stripe.</p>
                 </div>
               </div>
@@ -601,7 +564,7 @@ export default function App() {
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-white">Análise da Operação Verisignum</h2>
-                  <p className="text-sm text-gray-400">Rastreabilidade, assinaturas criptográficas ativas e monitorização de média.</p>
+                  <p className="text-sm text-gray-400">Rastreabilidade e monitorização de média digital.</p>
                 </div>
               </div>
 
