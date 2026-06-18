@@ -196,7 +196,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
+          price_id: 'price_1Tj9lcHFEg79uXE9zDKghejK' 
         })
       });
 
