@@ -84,7 +84,7 @@ const RENDER_BILLING_URL = "https://verisignum-api.onrender.com/v1/billing/creat
 export default function App() {
   const [activeTab, setActiveTab] = useState<string>('admin'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [apiKey, setApiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
+  const [apiKey, setApiKey] = useState<string>('vsg_live_vsg_live_7b0204eab45743d392d366774c0a1090');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   
   const [copyStatus, setCopyStatus] = useState<CopyStatus | any>({ hash: false, key: false, error: null });
