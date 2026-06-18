@@ -196,7 +196,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: 'price_1Tj9lcHFEg79uXE9zDKghejK' 
+          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
         })
       });
 
@@ -206,7 +206,12 @@ export default function App() {
       }
       
       const data = await response.json();
+      
+      // 1. Copia o link para a área de transferência silenciosamente (para colar num e-mail)
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
+      
+      // 2. NOVA LINHA: Abre a página de checkout da Stripe numa nova aba automaticamente!
+      window.open(data.checkout_url, '_blank');
       
     } catch (error: any) {
       console.error(error);
