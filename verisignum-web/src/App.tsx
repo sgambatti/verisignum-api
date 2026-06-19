@@ -78,7 +78,19 @@ const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/c
 const RENDER_COPILOT_URL = "https://verisignum-api.onrender.com/v1/copilot/chat";
 const RENDER_BILLING_URL = "https://verisignum-api.onrender.com/v1/billing/create-checkout-session";
 
+// NOVOS ENDPOINTS DE AUTENTICAÇÃO B2B
+const RENDER_AUTH_LOGIN_URL = "https://verisignum-api.onrender.com/v1/auth/login";
+const RENDER_AUTH_REGISTER_URL = "https://verisignum-api.onrender.com/v1/auth/register";
+
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authName, setAuthName] = useState<string>('');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
   const [activeTab, setActiveTab] = useState<string>('admin'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
   const [apiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
@@ -90,10 +102,12 @@ export default function App() {
   const [author, setAuthor] = useState<string>('');
   const [org, setOrg] = useState<string>('');
   const [isShielding, setIsShielding] = useState<boolean>(false);
+  const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
 
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -102,11 +116,71 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 
-  // Admin State
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
   const [newClientName, setNewClientName] = useState<string>('');
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
+
+  // Verifica silenciosamente se já temos um Token guardado ao abrir o site
+  React.useEffect(() => {
+    const token = localStorage.getItem('vsg_token');
+    if (token) setIsAuthenticated(true);
+  }, []);
+
+  // Motor central que conversa com o FastAPI para validar credenciais
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      if (authMode === 'register') {
+        const url = new URL(RENDER_AUTH_REGISTER_URL);
+        url.searchParams.append('name', authName);
+        url.searchParams.append('email', authEmail);
+        url.searchParams.append('password', authPassword);
+
+        const res = await fetch(url.toString(), { method: 'POST' });
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || 'Erro ao criar conta.');
+        }
+        // Sucesso: Muda para a tela de login para o cliente entrar
+        setAuthMode('login');
+        setAuthError('Conta criada! Verifique o seu e-mail corporativo (Boas-vindas) e faça login.');
+      } else {
+        // Fluxo de Login (O Python espera form-urlencoded por segurança OAuth2)
+        const formData = new URLSearchParams();
+        formData.append('username', authEmail);
+        formData.append('password', authPassword);
+
+        const res = await fetch(RENDER_AUTH_LOGIN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData.toString()
+        });
+        
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || 'Credenciais inválidas.');
+        }
+
+        const data = await res.json();
+        // Guardamos o "Crachá" no cofre do navegador e abrimos o painel
+        localStorage.setItem('vsg_token', data.access_token);
+        setIsAuthenticated(true);
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('vsg_token');
+    setIsAuthenticated(false);
+  };
 
   const safeCopyToClipboard = (text: string, type: 'hash' | 'key' | string): void => {
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
@@ -196,7 +270,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: 'price_1Tj9lcHFEg79uXE9zDKghejK' 
+          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
         })
       });
 
@@ -206,12 +280,7 @@ export default function App() {
       }
       
       const data = await response.json();
-      
-      // 1. Copia o link para a área de transferência silenciosamente (para colar num e-mail)
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
-      
-      // 2. NOVA LINHA: Abre a página de checkout da Stripe numa nova aba automaticamente!
-      window.open(data.checkout_url, '_blank');
       
     } catch (error: any) {
       console.error(error);
@@ -227,6 +296,7 @@ export default function App() {
 
     setIsShielding(true);
     setShieldResult(null);
+    setShieldStep('A estabelecer ligação com a API Verisignum no Render...');
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     const controller = new AbortController();
@@ -237,6 +307,8 @@ export default function App() {
       formData.append("file", shieldFile);
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
+
+      setShieldStep('A processar imagem e a invocar o motor de assinatura remotamente...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
@@ -254,6 +326,8 @@ export default function App() {
         } catch (e) {}
         throw new Error(errorMsg);
       }
+
+      setShieldStep('A descarregar ficheiro binário assinado digitalmente...');
 
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -293,6 +367,7 @@ export default function App() {
       };
       setAssets([newAsset, ...assets]);
       setIsShielding(false);
+      setShieldStep('');
 
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -300,6 +375,8 @@ export default function App() {
       
       let mensagemErro = err.message;
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setShieldStep('Servidor inacessível. A iniciar simulação local de fallback...');
+        
         setTimeout(() => {
           setShieldResult({
             hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Simulado)',
@@ -317,6 +394,7 @@ export default function App() {
           };
           setAssets([newAsset, ...assets]);
           setIsShielding(false);
+          setShieldStep('');
           setCopyStatus((prev: CopyStatus) => ({ 
             ...prev, 
             error: "Aviso: A ligação à API Render falhou. Certifique-se de que a API está online." 
@@ -327,6 +405,7 @@ export default function App() {
 
       setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${mensagemErro}` }));
       setIsShielding(false);
+      setShieldStep('');
     }
   };
 
@@ -336,6 +415,7 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
+    setScanStep('A enviar para o VerisignumLens na nuvem...');
 
     try {
       const formData = new FormData();
@@ -350,6 +430,7 @@ export default function App() {
 
       const verifyData = await response.json();
 
+      setScanStep('A analisar metadados criptográficos C2PA...');
       await new Promise(resolve => setTimeout(resolve, 1500)); 
 
       if (verifyData.has_c2pa) {
@@ -364,6 +445,7 @@ export default function App() {
           ]
         });
       } else {
+        setScanStep('Sem selo C2PA. A consultar motor forense da Hive AI na nuvem...');
         await new Promise(resolve => setTimeout(resolve, 1500)); 
 
         const aiData = verifyData.ai_analysis;
@@ -380,6 +462,7 @@ export default function App() {
       setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
     } finally {
       setIsScanning(false);
+      setScanStep('');
     }
   };
 
@@ -410,6 +493,72 @@ export default function App() {
     }
   };
 
+  // === A PORTA DE ENTRADA (Se não tiver feito Login) ===
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+          {/* Efeito luminoso de segurança ao fundo do cartão */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-indigo-500/10 blur-[60px] pointer-events-none"></div>
+          
+          <div className="flex flex-col items-center mb-8 relative z-10">
+            <div className="w-14 h-14 bg-[#0d1117] border border-[#30363d] rounded-xl flex items-center justify-center mb-4 shadow-lg">
+              <Shield className="text-indigo-500" size={28} />
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-wider">VERISIGNUM</h1>
+            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Enterprise Portal</p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4 relative z-10">
+            {authMode === 'register' && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
+                <input 
+                  type="text" value={authName} onChange={(e) => setAuthName(e.target.value)}
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                  required placeholder="Ex: Universidade de Lisboa"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
+              <input 
+                type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="diretor@edtech.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-400">Senha Segura</label>
+              <input 
+                type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="••••••••"
+              />
+            </div>
+
+            {authError && (
+              <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${authError.includes('criada') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                <AlertCircle size={16} className="flex-shrink-0" /> <span className="leading-tight">{authError}</span>
+              </div>
+            )}
+
+            <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
+              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Aderir à Plataforma')}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+              {authMode === 'login' ? 'Nova EdTech? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // === TELA PRINCIPAL (O Dashboard que você já conhece) ===
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -459,12 +608,18 @@ export default function App() {
           </div>
           
           <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400">PM</div>
-              <div>
-                <p className="text-xs font-semibold text-white">Modo Solopreneur</p>
-                <p className="text-[10px] text-gray-500">Métricas: Alta Escala</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400">PM</div>
+                <div>
+                  <p className="text-xs font-semibold text-white">Modo Solopreneur</p>
+                  <p className="text-[10px] text-gray-500">Métricas: Alta Escala</p>
+                </div>
               </div>
+              {/* Botão para Sair / Logout */}
+              <button onClick={handleLogout} className="text-gray-500 hover:text-red-400 transition-colors p-2 rounded-lg hover:bg-red-500/10" title="Terminar Sessão">
+                <Lock size={14} />
+              </button>
             </div>
           </div>
         </div>
@@ -628,6 +783,8 @@ export default function App() {
                   <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isShielding ? <Loader2 className="animate-spin" /> : 'Assinar Mídia'}
                   </button>
+                  
+                  {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{shieldStep}</p>}
                 </form>
               </div>
 
@@ -670,6 +827,8 @@ export default function App() {
                   <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
                   </button>
+                  
+                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
                 </form>
               </div>
 
