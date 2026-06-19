@@ -206,6 +206,7 @@ async def create_checkout_session(request: Request, db: Session = Depends(get_db
             payment_method_types=['card'],
             line_items=[{'price': price_id, 'quantity': 1}],
             mode='subscription',
+	    allow_promotion_codes=True,
             success_url='https://app.verisignum.ai/?payment=success',
             cancel_url='https://app.verisignum.ai/?payment=cancelled',
             metadata={'tenant_id': str(tenant_id), 'client_name': cliente.name}
