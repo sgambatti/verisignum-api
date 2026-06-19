@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 from passlib.context import CryptContext
 import jwt
+from sqlalchemy import Column, String, Integer, Boolean, text
 
 # ==========================================
 # 1. CONFIGURAÇÕES GERAIS E SEGURANÇA
@@ -145,6 +146,17 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
 
     return {"access_token": jwt_token, "token_type": "bearer"}
 
+# --- ROTA TEMPORÁRIA PARA ATUALIZAR O BANCO DE DADOS ---
+@app.get("/v1/system/fix-db")
+def fix_database(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
+        db.commit()
+        return {"status": "Banco de dados atualizado com sucesso! As colunas email e senha foram criadas."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
 
 # ==========================================
 # 5. DEPENDÊNCIA DE SEGURANÇA (O GUARDA-COSTAS)
