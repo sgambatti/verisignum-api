@@ -21,6 +21,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from pydantic import BaseModel
+import io
 
 load_dotenv()
 
@@ -257,8 +258,8 @@ async def assinar_midia(
             buffer.write(await file.read())
 
         # Caminhos dos certificados
-        cert_path = "test_cert.pem"
-        key_path = "test_key.pem"
+        cert_path = os.getenv("PROD_CERT_PATH", "producao_cert.pem")
+        key_path = os.getenv("PROD_KEY_PATH", "producao_key.pem")
 
         # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP ---
         # Garante que o servidor nunca falha por falta de chave criptográfica
@@ -319,16 +320,24 @@ async def assinar_midia(
             extensao = file.filename.split('.')[-1].lower()
             if extensao == 'jpg': extensao = 'jpeg'
             
-            # O SEGREDO: Em vez de passar os textos, abrimos os ficheiros na memória.
-            # "rb" (Read Binary) para a entrada, "wb+" (Write & Read Binary) para a saída.
-            with open(caminho_entrada, "rb") as in_stream:
-                with open(caminho_saida, "wb+") as out_stream:
-                    try:
-                        # Padrão mais moderno: Passamos o assinador, a extensão e os ficheiros abertos
-                        builder.sign(signer, extensao, in_stream, out_stream)
-                    except TypeError:
-                        # Fallback de segurança: algumas subversões não pedem a extensão
-                        builder.sign(signer, in_stream, out_stream)
+            # O SEGREDO 2.0: O motor em Rust exige objetos em RAM com todos os métodos
+            # (read, write, seek, tell, flush). Usamos io.BytesIO para isso.
+            with open(caminho_entrada, "rb") as f:
+                input_bytes = f.read()
+
+            in_stream = io.BytesIO(input_bytes)
+            out_stream = io.BytesIO()
+
+            try:
+                # Padrão mais moderno: Passamos o assinador, a extensão e os streams em memória
+                builder.sign(signer, extensao, in_stream, out_stream)
+            except TypeError:
+                # Fallback de segurança: algumas subversões não pedem a extensão
+                builder.sign(signer, in_stream, out_stream)
+            
+            # Guardamos o arquivo assinado de volta no disco
+            with open(caminho_saida, "wb") as f:
+                f.write(out_stream.getvalue())
             
         except AttributeError:
             # Sintaxe Antiga da Adobe (v0.4.x)
