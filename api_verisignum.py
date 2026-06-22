@@ -307,17 +307,28 @@ async def assinar_midia(
         # --- MOTOR C2PA À PROVA DE BALAS (Suporta Versão Nova e Antiga) ---
         try:
             # Sintaxe Nova da Adobe (v0.6+)
-            # 1. Empacotamos os dados num único dicionário (config)
             sign_config = {
                 "alg": "es256",
                 "sign_cert": cert_path,
                 "private_key": key_path
             }
-            # 2. Passamos o dicionário (o 2º argumento que ele pedia)
             signer = c2pa.Signer(sign_config)
-            
             builder = c2pa.Builder(manifesto_dict)
-            builder.sign(signer, caminho_entrada, caminho_saida)
+            
+            # Precisamos extrair a extensão do arquivo para dizer ao motor Rust
+            extensao = file.filename.split('.')[-1].lower()
+            if extensao == 'jpg': extensao = 'jpeg'
+            
+            # O SEGREDO: Em vez de passar os textos, abrimos os ficheiros na memória.
+            # "rb" (Read Binary) para a entrada, "wb+" (Write & Read Binary) para a saída.
+            with open(caminho_entrada, "rb") as in_stream:
+                with open(caminho_saida, "wb+") as out_stream:
+                    try:
+                        # Padrão mais moderno: Passamos o assinador, a extensão e os ficheiros abertos
+                        builder.sign(signer, extensao, in_stream, out_stream)
+                    except TypeError:
+                        # Fallback de segurança: algumas subversões não pedem a extensão
+                        builder.sign(signer, in_stream, out_stream)
             
         except AttributeError:
             # Sintaxe Antiga da Adobe (v0.4.x)
