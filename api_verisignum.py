@@ -256,20 +256,19 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # Caminhos dos certificados (configurados no Render como Secret Files)
-        cert_path = os.getenv("VERISIGNUM_CERT_PATH", "certs/test_cert.pem")
-        key_path = os.getenv("VERISIGNUM_KEY_PATH", "certs/test_key.pem")
+        # Caminhos dos certificados
+        cert_path = "test_cert.pem"
+        key_path = "test_key.pem"
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (Evita erro de ficheiro ausente no Render) ---
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP ---
+        # Garante que o servidor nunca falha por falta de chave criptográfica
         if not os.path.exists(cert_path) or not os.path.exists(key_path):
-            os.makedirs(os.path.dirname(cert_path), exist_ok=True)
             from cryptography.hazmat.primitives.asymmetric import ec
             from cryptography.hazmat.primitives import serialization, hashes
             from cryptography import x509
             from cryptography.x509.oid import NameOID
             import datetime
 
-            # Gera uma Chave Privada ES256 de grau militar (Padrão C2PA)
             private_key = ec.generate_private_key(ec.SECP256R1())
             with open(key_path, "wb") as f:
                 f.write(private_key.private_bytes(
@@ -278,29 +277,20 @@ async def assinar_midia(
                     encryption_algorithm=serialization.NoEncryption()
                 ))
 
-            # Gera um Certificado Público assinado
             subject = issuer = x509.Name([
                 x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
             ])
             cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
                 private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
-                datetime.datetime.utcnow()).not_valid_after(
-                datetime.datetime.utcnow() + datetime.timedelta(days=365)).sign(private_key, hashes.SHA256())
+                datetime.utcnow()).not_valid_after(
+                datetime.utcnow() + timedelta(days=365)).sign(private_key, hashes.SHA256())
 
             with open(cert_path, "wb") as f:
                 f.write(cert.public_bytes(serialization.Encoding.PEM))
-        # ---------------------------------------------------------------------------------
-
-        # Cria o assinador C2PA (Nova sintaxe da versão 0.4.0+)
-        signer = c2pa.create_signer({
-            "alg": "es256",
-            "sign_cert": cert_path,
-            "private_key": key_path
-        })
 
         # Define o manifesto
-        manifesto_json = {
-            "claim_generator": "Verisignum_Shield/3.0",
+        manifesto_dict = {
+            "claim_generator": "Verisignum_Shield/4.0",
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -314,8 +304,16 @@ async def assinar_midia(
             ]
         }
 
-        # Executa a assinatura
-        c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_json), signer)
+        # --- MOTOR C2PA À PROVA DE BALAS (Suporta Versão Nova e Antiga) ---
+        try:
+            # Sintaxe Nova da Adobe (v0.6+)
+            signer = c2pa.Signer("es256", cert_path, key_path)
+            builder = c2pa.Builder(manifesto_dict)
+            builder.sign(signer, caminho_entrada, caminho_saida)
+        except AttributeError:
+            # Sintaxe Antiga da Adobe (v0.4.x)
+            signer_info = c2pa.create_signer({"alg": "es256", "sign_cert": cert_path, "private_key": key_path})
+            c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_info)
 
         # Retorna o arquivo assinado para o utilizador descarregar
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{file.filename}")
@@ -324,7 +322,7 @@ async def assinar_midia(
         logger.error(f"Erro C2PA: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro no motor de assinatura: {str(e)}")
     finally:
-        # Limpeza: remove o arquivo de entrada temporário
+        # Limpeza do arquivo de entrada
         if os.path.exists(caminho_entrada):
             os.remove(caminho_entrada)
 
