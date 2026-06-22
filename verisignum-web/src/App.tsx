@@ -97,7 +97,6 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState<string>('dashboard'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [apiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   
   const [copyStatus, setCopyStatus] = useState<CopyStatus | any>({ hash: false, key: false, error: null });
