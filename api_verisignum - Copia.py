@@ -413,11 +413,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
     return JSONResponse(content={"success": True}, status_code=200)
 
-@app.get("/v1/admin/debug-clients")
-def debug_listar_clientes(db: Session = Depends(get_db)):
-    clientes = db.query(Client).all()
-    return [{"id": c.id, "name": c.name, "email": c.email, "stripe_id": c.stripe_customer_id} for c in clientes]
-
 # ==========================================
 # ROTAS DE SISTEMA & ADMIN
 # ==========================================
