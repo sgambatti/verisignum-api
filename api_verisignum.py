@@ -2,11 +2,11 @@
 import os
 import json
 import secrets
-import smtplib
 import logging
 import requests
 import c2pa
 import stripe
+import resend
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
@@ -17,8 +17,6 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from dotenv import load_dotenv
 from pydantic import BaseModel
 import io
@@ -53,11 +51,8 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 1440 # 24 horas
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
 
-# --- 3. CONFIGURAÇÕES DE E-MAIL (SMTP) ---
-SMTP_SERVER = os.getenv("SMTP_SERVER")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+# --- 3. CONFIGURAÇÕES DE E-MAIL (RESEND API) ---
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 # --- 4. CONFIGURAÇÕES DA STRIPE ---
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
@@ -126,22 +121,17 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
         raise credentials_exception
     return client
 
-# --- 7. FUNÇÃO DE ENVIO DE E-MAIL (BOAS-VINDAS) ---
+# --- 7. FUNÇÃO DE ENVIO DE E-MAIL (BOAS-VINDAS VIA RESEND) ---
 def send_welcome_email(client_email, client_name, api_key):
-    if not SMTP_SERVER or not SMTP_USER or not SMTP_PASSWORD:
-        print("Aviso: Credenciais SMTP não configuradas. E-mail não enviado.")
+    if not resend.api_key:
+        print("Aviso: Chave da API do Resend não configurada. E-mail não enviado.")
         return
-
-    msg = MIMEMultipart()
-    msg['From'] = f"Verisignum AI <{SMTP_USER}>"
-    msg['To'] = client_email
-    msg['Subject'] = "Bem-vindo à Verisignum - Sua Chave de API"
 
     html_body = f"""
     <html>
     <body style="font-family: sans-serif; color: #333;">
         <h2>Olá, {client_name}!</h2>
-        <p>Sua conta na plataforma Verisignum foi criada com sucesso.</p>
+        <p>A sua conta na plataforma Verisignum foi criada com sucesso.</p>
         <p>Abaixo está a sua <strong>Chave de API de Produção</strong>. Guarde-a em segurança, pois ela concede acesso aos nossos serviços de assinatura C2PA.</p>
         <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 1.2em; margin: 20px 0;">
             {api_key}
@@ -151,22 +141,20 @@ def send_welcome_email(client_email, client_name, api_key):
     </body>
     </html>
     """
-    msg.attach(MIMEText(html_body, 'html'))
+
+    # O Resend exige o remetente de teste (onboarding@resend.dev) até você verificar o seu domínio
+    params = {
+        "from": "Verisignum AI <onboarding@resend.dev>",
+        "to": [client_email],
+        "subject": "Bem-vindo à Verisignum - A sua Chave de API",
+        "html": html_body,
+    }
 
     try:
-        # Conexão inteligente (Tenta SSL 465, se falhar tenta TLS 587)
-        if SMTP_PORT == 465:
-            server = smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT)
-        else:
-            server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-            server.starttls()
-            
-        server.login(SMTP_USER, SMTP_PASSWORD)
-        server.sendmail(SMTP_USER, client_email, msg.as_string())
-        server.quit()
-        print(f"E-mail enviado com sucesso para {client_email}")
+        r = resend.Emails.send(params)
+        print(f"E-mail enviado com sucesso via Resend para {client_email}")
     except Exception as e:
-        print(f"Erro ao enviar e-mail: {e}")
+        print(f"Erro ao enviar e-mail via Resend: {e}")
 
 
 # ==========================================
@@ -195,9 +183,8 @@ def register_client(name: str, email: str, password: str, db: Session = Depends(
     db.commit()
     db.refresh(new_client)
     
-    # 4. Envia o e-mail de boas-vindas (Se o SMTP estiver configurado e não bloqueado)
-    # Descomente a linha abaixo se o seu plano Render permitir envio de e-mail
-    # send_welcome_email(email, name, new_api_key)
+    # 4. Envia o e-mail de boas-vindas imediatamente e sem bloqueios!
+    send_welcome_email(email, name, new_api_key)
     
     return {"message": "Conta criada com sucesso! Verifique seu e-mail para obter a API Key.", "client_id": new_client.id}
 
