@@ -267,7 +267,7 @@ async def assinar_midia(
             from cryptography.hazmat.primitives import serialization, hashes
             from cryptography import x509
             from cryptography.x509.oid import NameOID
-            import datetime
+            # REMOVIDO: import datetime (já importamos no topo do ficheiro, colocar aqui causava o erro!)
 
             private_key = ec.generate_private_key(ec.SECP256R1())
             with open(key_path, "wb") as f:
