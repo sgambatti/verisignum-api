@@ -307,9 +307,18 @@ async def assinar_midia(
         # --- MOTOR C2PA À PROVA DE BALAS (Suporta Versão Nova e Antiga) ---
         try:
             # Sintaxe Nova da Adobe (v0.6+)
-            signer = c2pa.Signer("es256", cert_path, key_path)
+            # 1. Empacotamos os dados num único dicionário (config)
+            sign_config = {
+                "alg": "es256",
+                "sign_cert": cert_path,
+                "private_key": key_path
+            }
+            # 2. Passamos o dicionário (o 2º argumento que ele pedia)
+            signer = c2pa.Signer(sign_config)
+            
             builder = c2pa.Builder(manifesto_dict)
             builder.sign(signer, caminho_entrada, caminho_saida)
+            
         except AttributeError:
             # Sintaxe Antiga da Adobe (v0.4.x)
             signer_info = c2pa.create_signer({"alg": "es256", "sign_cert": cert_path, "private_key": key_path})
