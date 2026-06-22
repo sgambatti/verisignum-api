@@ -260,8 +260,43 @@ async def assinar_midia(
         cert_path = os.getenv("VERISIGNUM_CERT_PATH", "certs/test_cert.pem")
         key_path = os.getenv("VERISIGNUM_KEY_PATH", "certs/test_key.pem")
 
-        # Cria o assinador C2PA
-        signer = c2pa.Signer.from_pem(cert_path, key_path, "es256")
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (Evita erro de ficheiro ausente no Render) ---
+        if not os.path.exists(cert_path) or not os.path.exists(key_path):
+            os.makedirs(os.path.dirname(cert_path), exist_ok=True)
+            from cryptography.hazmat.primitives.asymmetric import ec
+            from cryptography.hazmat.primitives import serialization, hashes
+            from cryptography import x509
+            from cryptography.x509.oid import NameOID
+            import datetime
+
+            # Gera uma Chave Privada ES256 de grau militar (Padrão C2PA)
+            private_key = ec.generate_private_key(ec.SECP256R1())
+            with open(key_path, "wb") as f:
+                f.write(private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                ))
+
+            # Gera um Certificado Público assinado
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
+            ])
+            cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+                private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
+                datetime.datetime.utcnow()).not_valid_after(
+                datetime.datetime.utcnow() + datetime.timedelta(days=365)).sign(private_key, hashes.SHA256())
+
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+        # ---------------------------------------------------------------------------------
+
+        # Cria o assinador C2PA (Nova sintaxe da versão 0.4.0+)
+        signer = c2pa.create_signer({
+            "alg": "es256",
+            "sign_cert": cert_path,
+            "private_key": key_path
+        })
 
         # Define o manifesto
         manifesto_json = {
@@ -282,12 +317,7 @@ async def assinar_midia(
         # Executa a assinatura
         c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_json), signer)
 
-        # Incrementa o uso do cliente (se estiver logado)
-        # if current_client:
-        #     current_client.usage_count += 1
-        #     db.commit()
-
-        # Retorna o arquivo assinado
+        # Retorna o arquivo assinado para o utilizador descarregar
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{file.filename}")
 
     except Exception as e:
@@ -412,11 +442,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             logger.warning(f"ALERTA: Pagamento falhou. Conta {cliente.name} bloqueada.")
 
     return JSONResponse(content={"success": True}, status_code=200)
-
-@app.get("/v1/admin/debug-clients")
-def debug_listar_clientes(db: Session = Depends(get_db)):
-    clientes = db.query(Client).all()
-    return [{"id": c.id, "name": c.name, "email": c.email, "stripe_id": c.stripe_customer_id} for c in clientes]
 
 # ==========================================
 # ROTAS DE SISTEMA & ADMIN
