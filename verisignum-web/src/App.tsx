@@ -78,9 +78,10 @@ const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/c
 const RENDER_COPILOT_URL = "https://verisignum-api.onrender.com/v1/copilot/chat";
 const RENDER_BILLING_URL = "https://verisignum-api.onrender.com/v1/billing/create-checkout-session";
 
-// NOVOS ENDPOINTS DE AUTENTICAÇÃO B2B
+// NOVOS ENDPOINTS DE AUTENTICAÇÃO B2B E DADOS
 const RENDER_AUTH_LOGIN_URL = "https://verisignum-api.onrender.com/v1/auth/login";
 const RENDER_AUTH_REGISTER_URL = "https://verisignum-api.onrender.com/v1/auth/register";
+const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboard/me";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -91,7 +92,10 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<string>('admin'); 
+  // NOVO ESTADO: Guarda os dados reais do banco de dados
+  const [clientData, setClientData] = useState<any>(null);
+
+  const [activeTab, setActiveTab] = useState<string>('dashboard'); 
   const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
   const [apiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
@@ -121,10 +125,30 @@ export default function App() {
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
+  // FUNÇÃO NOVA: Pede os dados ao servidor usando o Token
+  const fetchDashboardData = async (token: string) => {
+    try {
+      const res = await fetch(RENDER_DASHBOARD_ME_URL, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setClientData(data);
+      } else {
+        handleLogout(); // Se o token expirou, desloga
+      }
+    } catch (err) {
+      console.error("Erro ao buscar dados reais", err);
+    }
+  };
+
   // Verifica silenciosamente se já temos um Token guardado ao abrir o site
   React.useEffect(() => {
     const token = localStorage.getItem('vsg_token');
-    if (token) setIsAuthenticated(true);
+    if (token) {
+      setIsAuthenticated(true);
+      fetchDashboardData(token);
+    }
   }, []);
 
   // Motor central que conversa com o FastAPI para validar credenciais
@@ -169,6 +193,7 @@ export default function App() {
         // Guardamos o "Crachá" no cofre do navegador e abrimos o painel
         localStorage.setItem('vsg_token', data.access_token);
         setIsAuthenticated(true);
+        fetchDashboardData(data.access_token); // Busca os dados imediatamente após o login!
       }
     } catch (err: any) {
       setAuthError(err.message);
@@ -180,6 +205,7 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('vsg_token');
     setIsAuthenticated(false);
+    setClientData(null);
   };
 
   const safeCopyToClipboard = (text: string, type: 'hash' | 'key' | string): void => {
@@ -610,10 +636,14 @@ export default function App() {
           <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400">PM</div>
+                <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400">
+                  {/* Letra inicial do nome real! */}
+                  {clientData?.name ? clientData.name.charAt(0).toUpperCase() : 'V'}
+                </div>
                 <div>
-                  <p className="text-xs font-semibold text-white">Modo Solopreneur</p>
-                  <p className="text-[10px] text-gray-500">Métricas: Alta Escala</p>
+                  {/* Mostra o Nome Real do Banco de Dados */}
+                  <p className="text-xs font-semibold text-white">{clientData?.name || 'A carregar...'}</p>
+                  <p className="text-[10px] text-gray-500">Métricas: {clientData?.is_active ? 'Conta Ativa' : 'Trial (Pendente)'}</p>
                 </div>
               </div>
               {/* Botão para Sair / Logout */}
@@ -866,9 +896,11 @@ export default function App() {
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Key className="text-indigo-500" /> API Access Keys
                 </h3>
-                <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between font-mono text-xs text-indigo-400">
-                   {isKeyVisible ? apiKey : '••••••••••••••••••••••••••••••••'}
-                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white">Revelar</button>
+                <p className="text-xs text-gray-400">Esta é a sua chave exclusiva de produção. Use-a nos cabeçalhos das suas requisições.</p>
+                <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between items-center font-mono text-xs text-indigo-400">
+                   {/* Puxa a Chave de API Real do Servidor */}
+                   <span>{isKeyVisible ? (clientData?.api_key || 'A carregar...') : '••••••••••••••••••••••••••••••••'}</span>
+                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white hover:text-indigo-400 transition-colors">Revelar</button>
                 </div>
               </div>
             </div>
