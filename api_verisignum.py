@@ -251,47 +251,33 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Versão 4.0 do Certificado (Geração Limpa)
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v4.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v4.pem"))
+        # MUDANÇA 1: Versão 6.0 do Certificado (Geração Nativa OpenSSL)
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v6.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v6.pem"))
 
-        # SEGREDO 3.0: Ignora certificados do Render se estiverem vazios/inválidos (< 100 bytes)
+        # SEGREDO 3.0: Ignora certificados se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
         key_invalida = not os.path.exists(key_path) or os.path.getsize(key_path) < 100
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (Padrão Ouro X.509) ---
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL) ---
+        # Substituímos a biblioteca Python instável pelo OpenSSL nativo do Linux
+        # O OpenSSL cria um formato RSA que o C2PA nunca rejeitará (COSE Error resolvido)
         if cert_invalido or key_invalida:
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.hazmat.primitives import serialization, hashes
-            from cryptography import x509
-            from cryptography.x509.oid import NameOID
-
-            private_key = ec.generate_private_key(ec.SECP256R1())
-            with open(key_path, "wb") as f:
-                f.write(private_key.private_bytes(
-                    encoding=serialization.Encoding.PEM,
-                    format=serialization.PrivateFormat.PKCS8,
-                    encryption_algorithm=serialization.NoEncryption()
-                ))
-
-            subject = issuer = x509.Name([
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
-                x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
-            ])
-            
-            # Certificado limpo e padrão. Sem extensões complexas que quebram o parser Rust.
-            cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
-                private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
-                datetime.utcnow()).not_valid_after(
-                datetime.utcnow() + timedelta(days=365)
-            ).sign(private_key, hashes.SHA256())
-
-            with open(cert_path, "wb") as f:
-                f.write(cert.public_bytes(serialization.Encoding.PEM))
+            import subprocess
+            logger.info("Gerando certificado RSA C2PA via OpenSSL nativo...")
+            subprocess.run([
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", key_path, "-out", cert_path,
+                "-days", "365", "-nodes",
+                "-subj", "/CN=Verisignum C2PA Signer"
+            ], check=True)
 
         # Define o manifesto
         manifesto_dict = {
             "claim_generator": "Verisignum_Shield/4.0",
+            "alg": "ps256", # Algoritmo PSS para chaves RSA 2048 (Obrigatório)
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -305,23 +291,20 @@ async def assinar_midia(
             ]
         }
 
-        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO VIA PARÂMETROS) ---
+        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO) ---
         import subprocess
         import json
         
         manifest_file = caminho_entrada + ".json"
         
-        # Deixamos o JSON puramente para os metadados (autor, org, etc)
         with open(manifest_file, "w") as mf:
             json.dump(manifesto_dict, mf)
             
-        # A CORREÇÃO DE OURO: Passamos os certificados diretamente como argumentos -c e -k
-        # Isso contorna completamente o parser de JSON e força a ferramenta a ler os ficheiros corretos!
+        # A ferramenta c2patool aceita apenas o manifesto por comando.
+        # Ela lerá as chaves e o algoritmo DIRETAMENTE de dentro do JSON.
         cmd = [
             "c2patool", caminho_entrada, 
             "-m", manifest_file, 
-            "-c", cert_path, 
-            "-k", key_path, 
             "-o", caminho_saida, 
             "--force"
         ]
@@ -520,7 +503,6 @@ def fix_database(db: Session = Depends(get_db)):
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
     except Exception as e:
         db.rollback()
-        return {"error": str(e)}
 
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(db: Session = Depends(get_db)):
@@ -531,4 +513,5 @@ def reset_all_clients(db: Session = Depends(get_db)):
         return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
+        return {"error": str(e)}
         return {"error": str(e)}
