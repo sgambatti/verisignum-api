@@ -299,9 +299,9 @@ async def assinar_midia(
             ]
         }
 
-        # --- MOTOR C2PA À PROVA DE BALAS (Suporta Versão Nova e Antiga) ---
+        # --- MOTOR C2PA À PROVA DE BALAS ---
         try:
-            # Sintaxe Nova da Adobe (v0.6+)
+            # 1. Cria a configuração de assinatura e o Builder
             sign_config = {
                 "alg": "es256",
                 "sign_cert": cert_path,
@@ -310,36 +310,37 @@ async def assinar_midia(
             signer = c2pa.Signer(sign_config)
             builder = c2pa.Builder(manifesto_dict)
             
-            # Precisamos extrair a extensão do arquivo para dizer ao motor Rust
-            extensao = file.filename.split('.')[-1].lower()
-            if extensao == 'jpg': extensao = 'jpeg'
+            # 2. A CORREÇÃO: Usamos sign_file (lê e grava direto no disco) 
+            # A ordem rígida que o C++ exige é: (caminho_origem, caminho_destino, signer)
+            builder.sign_file(caminho_entrada, caminho_saida, signer)
             
-            # O SEGREDO 2.0: O motor em Rust exige objetos em RAM
-            with open(caminho_entrada, "rb") as f:
-                input_bytes = f.read()
-
-            in_stream = io.BytesIO(input_bytes)
-            out_stream = io.BytesIO()
-
-            try:
-                # Padrão mais moderno
-                builder.sign(signer, extensao, in_stream, out_stream)
-            except TypeError:
-                builder.sign(signer, in_stream, out_stream)
+        except Exception as py_error:
+            # 3. FALLBACK DE EMERGÊNCIA (CLI NATIVO)
+            # Se o wrapper do Python entrar em conflito de versões, o sistema 
+            # não cai! Ele invoca o motor binário nativo (c2patool) do seu Docker.
+            import subprocess
+            import json
+            logger.warning(f"Binding Python falhou ({py_error}). A acionar motor CLI nativo...")
             
-            with open(caminho_saida, "wb") as f:
-                f.write(out_stream.getvalue())
+            manifest_file = caminho_entrada + ".json"
+            manifesto_cli = manifesto_dict.copy()
+            manifesto_cli["private_key"] = key_path
+            manifesto_cli["sign_cert"] = cert_path
             
-        except Exception as e:
-            # A CORREÇÃO DE OURO: O C-Binding (Rust) antigo recusa dicionários.
-            # Temos de passar os argumentos como textos separados (Strings Posicionais)!
-            try:
-                signer_pointer = c2pa.create_signer(cert_path, key_path, "es256", None)
-                c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_pointer)
-            except TypeError:
-                # Fallback caso a versão rejeite o 4º argumento (None)
-                signer_pointer = c2pa.create_signer(cert_path, key_path, "es256")
-                c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_pointer)
+            # Guardamos o manifesto num ficheiro temporário para o CLI ler
+            with open(manifest_file, "w") as mf:
+                json.dump(manifesto_cli, mf)
+                
+            # Disparamos o comando no terminal do servidor Linux
+            cmd = ["c2patool", caminho_entrada, "-m", manifest_file, "-o", caminho_saida, "--force"]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Limpeza do ficheiro temporário
+            if os.path.exists(manifest_file):
+                os.remove(manifest_file)
+                
+            if result.returncode != 0:
+                raise Exception(f"Falha crítica no motor nativo C2PA: {result.stderr}")
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
@@ -527,17 +528,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
