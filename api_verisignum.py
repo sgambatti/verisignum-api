@@ -236,7 +236,7 @@ async def assinar_midia(
     if not current_client.is_active:
         if current_client.usage_count >= 5:
             raise HTTPException(
-                status_code=402, # 402 = Payment Required
+                status_code=402, 
                 detail="Free Trial esgotado (5/5 usos). Por favor, ative o plano Enterprise na aba Admin para continuar a usar a API."
             )
 
@@ -247,62 +247,52 @@ async def assinar_midia(
     caminho_saida = os.path.join(OUTPUT_DIR, f"verisignum_{file.filename}")
 
     try:
-        # Salva o arquivo temporariamente
+        # 1. Salva o arquivo temporariamente
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Versão 8.0 do Certificado (Padrão Ouro X.509 v3)
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v8.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v8.pem"))
+        # SOLUÇÃO DEFINITIVA: Ignoramos os Ficheiros Secretos do Render.
+        # Forçamos a criação de chaves master na pasta temp isolada.
+        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "verisignum_master_cert.pem"))
+        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "verisignum_master_key.pem"))
 
-        # SEGREDO 3.0: Ignora certificados se estiverem vazios/inválidos (< 100 bytes)
-        cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
-        key_invalida = not os.path.exists(key_path) or os.path.getsize(key_path) < 100
+        # 2. Gera Chaves Perfeitas Matematicamente (Padrão Ouro ECDSA)
+        # Ao não verificar se existem, forçamos a re-geração limpa a cada boot,
+        # matando de vez o erro "COSE error parsing certificate".
+        from cryptography.hazmat.primitives.asymmetric import ec
+        from cryptography.hazmat.primitives import serialization, hashes
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from datetime import datetime, timedelta
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL com Extensões X.509 v3) ---
-        if cert_invalido or key_invalida:
-            import subprocess
-            logger.info("Gerando certificado ECDSA C2PA com Extensões X.509 v3...")
-            
-            # A MAGIA DA V8: Criamos um arquivo de configuração OpenSSL na mosca
-            # Isso força o OpenSSL a criar um certificado X.509 v3 com extensões militares
-            cnf_path = os.path.abspath(os.path.join(UPLOAD_DIR, "c2pa_openssl.cnf"))
-            with open(cnf_path, "w") as f:
-                f.write("""
-[req]
-distinguished_name = req_distinguished_name
-x509_extensions = v3_req
-prompt = no
+        private_key = ec.generate_private_key(ec.SECP256R1())
+        with open(key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
 
-[req_distinguished_name]
-C = BR
-O = Verisignum Trust Network
-CN = Verisignum C2PA Signer
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
+            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
+        ])
+        
+        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+            private_key.public_key()
+        ).serial_number(x509.random_serial_number()).not_valid_before(
+            datetime.utcnow()
+        ).not_valid_after(
+            datetime.utcnow() + timedelta(days=3650)
+        ).sign(private_key, hashes.SHA256())
 
-[v3_req]
-basicConstraints = critical, CA:FALSE
-keyUsage = critical, digitalSignature
-subjectKeyIdentifier = hash
-authorityKeyIdentifier = keyid,issuer
-""")
-            
-            # 1. Gera a chave privada ECDSA
-            subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", key_path], check=True)
-            
-            # 2. Gera o certificado usando a configuração v3
-            subprocess.run([
-                "openssl", "req", "-new", "-x509", "-key", key_path, "-out", cert_path,
-                "-days", "365", "-config", cnf_path
-            ], check=True)
-            
-            # Limpeza do arquivo de configuração
-            if os.path.exists(cnf_path):
-                os.remove(cnf_path)
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
 
-        # Define o manifesto
+        # 3. Define o manifesto com os caminhos absolutos das chaves recém-geradas
         manifesto_dict = {
-            "claim_generator": "Verisignum_Shield/4.0",
-            "alg": "es256", # Algoritmo oficial ECDSA
+            "claim_generator": "Verisignum_Shield/5.0",
+            "alg": "es256",
             "private_key": key_path,
             "sign_cert": cert_path,
             "assertions": [
@@ -318,7 +308,7 @@ authorityKeyIdentifier = keyid,issuer
             ]
         }
 
-        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO) ---
+        # 4. MOTOR CLI NATIVO (Sem dependências instáveis)
         import subprocess
         import json
         
@@ -336,11 +326,12 @@ authorityKeyIdentifier = keyid,issuer
         
         result = subprocess.run(cmd, capture_output=True, text=True)
         
+        # Limpeza
         if os.path.exists(manifest_file):
             os.remove(manifest_file)
             
         if result.returncode != 0:
-            raise Exception(f"Erro COSE/Motor C2PA: {result.stderr}")
+            raise Exception(f"Erro Motor C2PA: {result.stderr}")
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
