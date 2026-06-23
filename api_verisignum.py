@@ -251,29 +251,53 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Versão 7.0 do Certificado (Padrão Ouro ECDSA)
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v7.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v7.pem"))
+        # MUDANÇA 1: Versão 8.0 do Certificado (Padrão Ouro X.509 v3)
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v8.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v8.pem"))
 
         # SEGREDO 3.0: Ignora certificados se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
         key_invalida = not os.path.exists(key_path) or os.path.getsize(key_path) < 100
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL ECDSA) ---
-        # O motor C2PA em Rust foi desenhado com foco nativo na curva elíptica P-256.
-        # Vamos gerar exatamente a chave ECDSA que o validador espera ver.
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL com Extensões X.509 v3) ---
         if cert_invalido or key_invalida:
             import subprocess
-            logger.info("Gerando certificado ECDSA C2PA via OpenSSL nativo...")
+            logger.info("Gerando certificado ECDSA C2PA com Extensões X.509 v3...")
             
-            # 1. Gera a chave privada na curva prime256v1 (Obrigatório para es256)
+            # A MAGIA DA V8: Criamos um arquivo de configuração OpenSSL na mosca
+            # Isso força o OpenSSL a criar um certificado X.509 v3 com extensões militares
+            cnf_path = os.path.abspath(os.path.join(UPLOAD_DIR, "c2pa_openssl.cnf"))
+            with open(cnf_path, "w") as f:
+                f.write("""
+[req]
+distinguished_name = req_distinguished_name
+x509_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = BR
+O = Verisignum Trust Network
+CN = Verisignum C2PA Signer
+
+[v3_req]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature
+subjectKeyIdentifier = hash
+authorityKeyIdentifier = keyid,issuer
+""")
+            
+            # 1. Gera a chave privada ECDSA
             subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", key_path], check=True)
             
-            # 2. Gera o certificado X.509 público
+            # 2. Gera o certificado usando a configuração v3
             subprocess.run([
                 "openssl", "req", "-new", "-x509", "-key", key_path, "-out", cert_path,
-                "-days", "365", "-nodes", "-subj", "/CN=Verisignum C2PA Signer"
+                "-days", "365", "-config", cnf_path
             ], check=True)
+            
+            # Limpeza do arquivo de configuração
+            if os.path.exists(cnf_path):
+                os.remove(cnf_path)
 
         # Define o manifesto
         manifesto_dict = {
@@ -303,8 +327,6 @@ async def assinar_midia(
         with open(manifest_file, "w") as mf:
             json.dump(manifesto_dict, mf)
             
-        # A ferramenta c2patool aceita apenas o manifesto por comando.
-        # Ela lerá as chaves e o algoritmo DIRETAMENTE de dentro do JSON.
         cmd = [
             "c2patool", caminho_entrada, 
             "-m", manifest_file, 
@@ -504,6 +526,17 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
+@app.delete("/v1/admin/reset-database")
+def reset_all_clients(db: Session = Depends(get_db)):
+    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
+    try:
+        db.query(Client).delete()
+        db.commit()
+        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
