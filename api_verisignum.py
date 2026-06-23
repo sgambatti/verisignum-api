@@ -229,8 +229,17 @@ async def assinar_midia(
     file: UploadFile = File(...),
     author: str = Form("Autor Desconhecido"),
     organization: str = Form("Verisignum AI"),
-    # current_client: Client = Depends(get_current_client) # Descomente para exigir login para assinar
+    current_client: Client = Depends(get_current_client), # CADEADO ATIVADO
+    db: Session = Depends(get_db)                         # Injetamos o banco de dados
 ):
+    # --- PAYWALL: VERIFICAÇÃO DE FREE TRIAL ---
+    if not current_client.is_active:
+        if current_client.usage_count >= 5:
+            raise HTTPException(
+                status_code=402, # 402 = Payment Required
+                detail="Free Trial esgotado (5/5 usos). Por favor, ative o plano Enterprise na aba Admin para continuar a usar a API."
+            )
+
     if file.filename.lower().endswith('.pdf') or file.content_type == 'application/pdf':
         raise HTTPException(status_code=400, detail="Formato PDF não suportado pelo motor de assinatura C2PA atual.")
 
@@ -329,6 +338,10 @@ async def assinar_midia(
             signer_info = c2pa.create_signer({"alg": "es256", "sign_cert": cert_path, "private_key": key_path})
             c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_info)
 
+        # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
+        current_client.usage_count += 1
+        db.commit()
+
         # Retorna o arquivo assinado para o utilizador descarregar
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{file.filename}")
 
@@ -339,6 +352,38 @@ async def assinar_midia(
         # Limpeza do arquivo de entrada
         if os.path.exists(caminho_entrada):
             os.remove(caminho_entrada)
+
+@app.post("/v1/lens/verify")
+async def verificar_midia(
+    file: UploadFile = File(...),
+    current_client: Client = Depends(get_current_client), # CADEADO ATIVADO
+    db: Session = Depends(get_db)
+):
+    # --- PAYWALL: VERIFICAÇÃO DE FREE TRIAL ---
+    if not current_client.is_active:
+        if current_client.usage_count >= 5:
+            raise HTTPException(
+                status_code=402, 
+                detail="Free Trial esgotado (5/5 usos). Por favor, ative a sua assinatura na aba Admin para continuar."
+            )
+    
+    # Incrementa o uso
+    current_client.usage_count += 1
+    db.commit()
+    
+    # Simulação Forense MVP
+    filename_lower = file.filename.lower()
+    is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
+    score = 15 if is_ai else 85
+    
+    return {
+        "has_c2pa": False,
+        "ai_analysis": {
+            "score": score,
+            "is_ai": is_ai,
+            "anomalies": ["Inconsistências e ruído de difusão detetados (Possível Deepfake)."] if is_ai else ["Estrutura de pixels aparentemente natural."]
+        }
+    }
 
 # ==========================================
 # ROTAS DE IA (COPILOT)
