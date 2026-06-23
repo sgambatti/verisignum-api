@@ -314,8 +314,7 @@ async def assinar_midia(
             extensao = file.filename.split('.')[-1].lower()
             if extensao == 'jpg': extensao = 'jpeg'
             
-            # O SEGREDO 2.0: O motor em Rust exige objetos em RAM com todos os métodos
-            # (read, write, seek, tell, flush). Usamos io.BytesIO para isso.
+            # O SEGREDO 2.0: O motor em Rust exige objetos em RAM
             with open(caminho_entrada, "rb") as f:
                 input_bytes = f.read()
 
@@ -323,20 +322,24 @@ async def assinar_midia(
             out_stream = io.BytesIO()
 
             try:
-                # Padrão mais moderno: Passamos o assinador, a extensão e os streams em memória
+                # Padrão mais moderno
                 builder.sign(signer, extensao, in_stream, out_stream)
             except TypeError:
-                # Fallback de segurança: algumas subversões não pedem a extensão
                 builder.sign(signer, in_stream, out_stream)
             
-            # Guardamos o arquivo assinado de volta no disco
             with open(caminho_saida, "wb") as f:
                 f.write(out_stream.getvalue())
             
-        except AttributeError:
-            # Sintaxe Antiga da Adobe (v0.4.x)
-            signer_info = c2pa.create_signer({"alg": "es256", "sign_cert": cert_path, "private_key": key_path})
-            c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_info)
+        except Exception as e:
+            # A CORREÇÃO DE OURO: O C-Binding (Rust) antigo recusa dicionários.
+            # Temos de passar os argumentos como textos separados (Strings Posicionais)!
+            try:
+                signer_pointer = c2pa.create_signer(cert_path, key_path, "es256", None)
+                c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_pointer)
+            except TypeError:
+                # Fallback caso a versão rejeite o 4º argumento (None)
+                signer_pointer = c2pa.create_signer(cert_path, key_path, "es256")
+                c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer_pointer)
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
@@ -524,17 +527,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
