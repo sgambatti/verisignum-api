@@ -251,19 +251,19 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # CORREÇÃO: Caminhos dos certificados convertidos para Absolutos 
-        # (Isso impede que o motor em Rust se perca nas pastas do Linux)
         cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "producao_cert.pem"))
         key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "producao_key.pem"))
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP ---
-        # Garante que o servidor nunca falha por falta de chave criptográfica
-        if not os.path.exists(cert_path) or not os.path.exists(key_path):
+        # SEGREDO 3.0: Ignora certificados do Render se estiverem vazios/inválidos (< 100 bytes)
+        cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
+        key_invalida = not os.path.exists(key_path) or os.path.getsize(key_path) < 100
+
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (Padrão Ouro X.509) ---
+        if cert_invalido or key_invalida:
             from cryptography.hazmat.primitives.asymmetric import ec
             from cryptography.hazmat.primitives import serialization, hashes
             from cryptography import x509
             from cryptography.x509.oid import NameOID
-            # REMOVIDO: import datetime (já importamos no topo do ficheiro, colocar aqui causava o erro!)
 
             private_key = ec.generate_private_key(ec.SECP256R1())
             with open(key_path, "wb") as f:
@@ -276,10 +276,17 @@ async def assinar_midia(
             subject = issuer = x509.Name([
                 x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
             ])
+            
+            # ADIÇÃO CRÍTICA: Extensões obrigatórias de Segurança (KeyUsage) exigidas pelo motor Rust
             cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
                 private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
                 datetime.utcnow()).not_valid_after(
-                datetime.utcnow() + timedelta(days=365)).sign(private_key, hashes.SHA256())
+                datetime.utcnow() + timedelta(days=365)
+            ).add_extension(
+                x509.BasicConstraints(ca=True, path_length=None), critical=True
+            ).add_extension(
+                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
+            ).sign(private_key, hashes.SHA256())
 
             with open(cert_path, "wb") as f:
                 f.write(cert.public_bytes(serialization.Encoding.PEM))
@@ -300,61 +307,38 @@ async def assinar_midia(
             ]
         }
 
-        # --- MOTOR C2PA À PROVA DE BALAS ---
-        try:
-            # 1. Cria a configuração de assinatura e o Builder
-            sign_config = {
-                "alg": "es256",
-                "sign_cert": cert_path,
-                "private_key": key_path
-            }
-            signer = c2pa.Signer(sign_config)
-            builder = c2pa.Builder(manifesto_dict)
+        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO) ---
+        # Removemos a biblioteca de Python instável e usamos 100% o motor binário nativo
+        import subprocess
+        import json
+        
+        manifest_file = caminho_entrada + ".json"
+        manifesto_cli = manifesto_dict.copy()
+        manifesto_cli["private_key"] = key_path
+        manifesto_cli["sign_cert"] = cert_path
+        
+        with open(manifest_file, "w") as mf:
+            json.dump(manifesto_cli, mf)
             
-            # 2. A CORREÇÃO: Usamos sign_file (lê e grava direto no disco) 
-            # A ordem rígida que o C++ exige é: (caminho_origem, caminho_destino, signer)
-            builder.sign_file(caminho_entrada, caminho_saida, signer)
+        cmd = ["c2patool", caminho_entrada, "-m", manifest_file, "-o", caminho_saida, "--force"]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if os.path.exists(manifest_file):
+            os.remove(manifest_file)
             
-        except Exception as py_error:
-            # 3. FALLBACK DE EMERGÊNCIA (CLI NATIVO)
-            # Se o wrapper do Python entrar em conflito de versões, o sistema 
-            # não cai! Ele invoca o motor binário nativo (c2patool) do seu Docker.
-            import subprocess
-            import json
-            logger.warning(f"Binding Python falhou ({py_error}). A acionar motor CLI nativo...")
-            
-            manifest_file = caminho_entrada + ".json"
-            manifesto_cli = manifesto_dict.copy()
-            manifesto_cli["private_key"] = key_path
-            manifesto_cli["sign_cert"] = cert_path
-            
-            # Guardamos o manifesto num ficheiro temporário para o CLI ler
-            with open(manifest_file, "w") as mf:
-                json.dump(manifesto_cli, mf)
-                
-            # Disparamos o comando no terminal do servidor Linux
-            cmd = ["c2patool", caminho_entrada, "-m", manifest_file, "-o", caminho_saida, "--force"]
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            
-            # Limpeza do ficheiro temporário
-            if os.path.exists(manifest_file):
-                os.remove(manifest_file)
-                
-            if result.returncode != 0:
-                raise Exception(f"Falha crítica no motor nativo C2PA: {result.stderr}")
+        if result.returncode != 0:
+            raise Exception(f"Erro COSE/Motor C2PA: {result.stderr}")
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
         db.commit()
 
-        # Retorna o arquivo assinado para o utilizador descarregar
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{file.filename}")
 
     except Exception as e:
         logger.error(f"Erro C2PA: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro no motor de assinatura: {str(e)}")
     finally:
-        # Limpeza do arquivo de entrada
         if os.path.exists(caminho_entrada):
             os.remove(caminho_entrada)
 
@@ -529,17 +513,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
