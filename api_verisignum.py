@@ -532,3 +532,14 @@ def fix_database(db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
+
+@app.delete("/v1/admin/reset-database")
+def reset_all_clients(db: Session = Depends(get_db)):
+    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
+    try:
+        db.query(Client).delete()
+        db.commit()
+        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
