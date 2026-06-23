@@ -251,8 +251,9 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "producao_cert.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "producao_key.pem"))
+        # MUDANÇA 1: Trocamos o nome para "v2" para forçar a geração de um novo certificado limpo
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v2.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v2.pem"))
 
         # SEGREDO 3.0: Ignora certificados do Render se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
@@ -277,7 +278,10 @@ async def assinar_midia(
                 x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
             ])
             
-            # ADIÇÃO CRÍTICA: Extensões obrigatórias de Segurança (KeyUsage) exigidas pelo motor Rust
+            # MUDANÇA 2: A CORREÇÃO COSE! O motor Rust C2PA EXIGE o "Subject Key Identifier".
+            ski_ext = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
+            
+            # ADIÇÃO CRÍTICA: Extensões obrigatórias de Segurança (KeyUsage)
             cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
                 private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
                 datetime.utcnow()).not_valid_after(
@@ -286,6 +290,8 @@ async def assinar_midia(
                 x509.BasicConstraints(ca=True, path_length=None), critical=True
             ).add_extension(
                 x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
+            ).add_extension(
+                ski_ext, critical=False # <--- O Identificador que resolve o erro!
             ).sign(private_key, hashes.SHA256())
 
             with open(cert_path, "wb") as f:
@@ -316,6 +322,7 @@ async def assinar_midia(
         manifesto_cli = manifesto_dict.copy()
         manifesto_cli["private_key"] = key_path
         manifesto_cli["sign_cert"] = cert_path
+        manifesto_cli["alg"] = "es256" # Forçamos a declaração explícita do algoritmo para o Rust
         
         with open(manifest_file, "w") as mf:
             json.dump(manifesto_cli, mf)
@@ -513,6 +520,17 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
+@app.delete("/v1/admin/reset-database")
+def reset_all_clients(db: Session = Depends(get_db)):
+    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
+    try:
+        db.query(Client).delete()
+        db.commit()
+        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
