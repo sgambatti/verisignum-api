@@ -251,31 +251,34 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Versão 6.0 do Certificado (Geração Nativa OpenSSL)
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v6.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v6.pem"))
+        # MUDANÇA 1: Versão 7.0 do Certificado (Padrão Ouro ECDSA)
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v7.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v7.pem"))
 
         # SEGREDO 3.0: Ignora certificados se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
         key_invalida = not os.path.exists(key_path) or os.path.getsize(key_path) < 100
 
-        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL) ---
-        # Substituímos a biblioteca Python instável pelo OpenSSL nativo do Linux
-        # O OpenSSL cria um formato RSA que o C2PA nunca rejeitará (COSE Error resolvido)
+        # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP (OpenSSL ECDSA) ---
+        # O motor C2PA em Rust foi desenhado com foco nativo na curva elíptica P-256.
+        # Vamos gerar exatamente a chave ECDSA que o validador espera ver.
         if cert_invalido or key_invalida:
             import subprocess
-            logger.info("Gerando certificado RSA C2PA via OpenSSL nativo...")
+            logger.info("Gerando certificado ECDSA C2PA via OpenSSL nativo...")
+            
+            # 1. Gera a chave privada na curva prime256v1 (Obrigatório para es256)
+            subprocess.run(["openssl", "ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", key_path], check=True)
+            
+            # 2. Gera o certificado X.509 público
             subprocess.run([
-                "openssl", "req", "-x509", "-newkey", "rsa:2048",
-                "-keyout", key_path, "-out", cert_path,
-                "-days", "365", "-nodes",
-                "-subj", "/CN=Verisignum C2PA Signer"
+                "openssl", "req", "-new", "-x509", "-key", key_path, "-out", cert_path,
+                "-days", "365", "-nodes", "-subj", "/CN=Verisignum C2PA Signer"
             ], check=True)
 
         # Define o manifesto
         manifesto_dict = {
             "claim_generator": "Verisignum_Shield/4.0",
-            "alg": "ps256", # Algoritmo PSS para chaves RSA 2048 (Obrigatório)
+            "alg": "es256", # Algoritmo oficial ECDSA
             "private_key": key_path,
             "sign_cert": cert_path,
             "assertions": [
@@ -503,15 +506,4 @@ def fix_database(db: Session = Depends(get_db)):
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
     except Exception as e:
         db.rollback()
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
         return {"error": str(e)}
