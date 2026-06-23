@@ -251,9 +251,9 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Trocamos o nome para "v2" para forçar a geração de um novo certificado limpo
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v2.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v2.pem"))
+        # MUDANÇA 1: Trocamos o nome para "v3" para forçar a geração de um certificado limpo e correto
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v3.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v3.pem"))
 
         # SEGREDO 3.0: Ignora certificados do Render se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
@@ -278,20 +278,25 @@ async def assinar_midia(
                 x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
             ])
             
-            # MUDANÇA 2: A CORREÇÃO COSE! O motor Rust C2PA EXIGE o "Subject Key Identifier".
+            # MUDANÇA 2: A CORREÇÃO COSE DEFINITIVA! 
+            # O C2PA proíbe que Autoridades Raiz (CA=True) assinem mídias diretamente.
+            # Precisamos declarar que somos uma Entidade Final (CA=False) e adicionar a chave de Autoridade (AKI).
             ski_ext = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
+            aki_ext = x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key())
             
-            # ADIÇÃO CRÍTICA: Extensões obrigatórias de Segurança (KeyUsage)
+            # ADIÇÃO CRÍTICA: ca=False e key_cert_sign=False
             cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
                 private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
                 datetime.utcnow()).not_valid_after(
                 datetime.utcnow() + timedelta(days=365)
             ).add_extension(
-                x509.BasicConstraints(ca=True, path_length=None), critical=True
+                x509.BasicConstraints(ca=False, path_length=None), critical=True
             ).add_extension(
-                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=True, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
+                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
             ).add_extension(
-                ski_ext, critical=False # <--- O Identificador que resolve o erro!
+                ski_ext, critical=False
+            ).add_extension(
+                aki_ext, critical=False
             ).sign(private_key, hashes.SHA256())
 
             with open(cert_path, "wb") as f:
@@ -520,17 +525,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
