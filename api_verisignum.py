@@ -251,9 +251,9 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # MUDANÇA 1: Trocamos o nome para "v3" para forçar a geração de um certificado limpo e correto
-        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v3.pem"))
-        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v3.pem"))
+        # MUDANÇA 1: Versão 4.0 do Certificado (Geração Limpa)
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "vsg_cert_v4.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "vsg_key_v4.pem"))
 
         # SEGREDO 3.0: Ignora certificados do Render se estiverem vazios/inválidos (< 100 bytes)
         cert_invalido = not os.path.exists(cert_path) or os.path.getsize(cert_path) < 100
@@ -275,28 +275,15 @@ async def assinar_midia(
                 ))
 
             subject = issuer = x509.Name([
-                x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network")
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
+                x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
             ])
             
-            # MUDANÇA 2: A CORREÇÃO COSE DEFINITIVA! 
-            # O C2PA proíbe que Autoridades Raiz (CA=True) assinem mídias diretamente.
-            # Precisamos declarar que somos uma Entidade Final (CA=False) e adicionar a chave de Autoridade (AKI).
-            ski_ext = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
-            aki_ext = x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key())
-            
-            # ADIÇÃO CRÍTICA: ca=False e key_cert_sign=False
+            # Certificado limpo e padrão. Sem extensões complexas que quebram o parser Rust.
             cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
                 private_key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(
                 datetime.utcnow()).not_valid_after(
                 datetime.utcnow() + timedelta(days=365)
-            ).add_extension(
-                x509.BasicConstraints(ca=False, path_length=None), critical=True
-            ).add_extension(
-                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
-            ).add_extension(
-                ski_ext, critical=False
-            ).add_extension(
-                aki_ext, critical=False
             ).sign(private_key, hashes.SHA256())
 
             with open(cert_path, "wb") as f:
@@ -318,21 +305,27 @@ async def assinar_midia(
             ]
         }
 
-        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO) ---
-        # Removemos a biblioteca de Python instável e usamos 100% o motor binário nativo
+        # --- MOTOR C2PA DEFINITIVO (CLI NATIVO VIA PARÂMETROS) ---
         import subprocess
         import json
         
         manifest_file = caminho_entrada + ".json"
-        manifesto_cli = manifesto_dict.copy()
-        manifesto_cli["private_key"] = key_path
-        manifesto_cli["sign_cert"] = cert_path
-        manifesto_cli["alg"] = "es256" # Forçamos a declaração explícita do algoritmo para o Rust
         
+        # Deixamos o JSON puramente para os metadados (autor, org, etc)
         with open(manifest_file, "w") as mf:
-            json.dump(manifesto_cli, mf)
+            json.dump(manifesto_dict, mf)
             
-        cmd = ["c2patool", caminho_entrada, "-m", manifest_file, "-o", caminho_saida, "--force"]
+        # A CORREÇÃO DE OURO: Passamos os certificados diretamente como argumentos -c e -k
+        # Isso contorna completamente o parser de JSON e força a ferramenta a ler os ficheiros corretos!
+        cmd = [
+            "c2patool", caminho_entrada, 
+            "-m", manifest_file, 
+            "-c", cert_path, 
+            "-k", key_path, 
+            "-o", caminho_saida, 
+            "--force"
+        ]
+        
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if os.path.exists(manifest_file):
@@ -525,6 +518,17 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
+
+@app.delete("/v1/admin/reset-database")
+def reset_all_clients(db: Session = Depends(get_db)):
+    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
+    try:
+        db.query(Client).delete()
+        db.commit()
+        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
