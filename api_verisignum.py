@@ -121,23 +121,21 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
         raise credentials_exception
     return client
 
-# --- 7. FUNÇÃO DE ENVIO DE E-MAIL (BOAS-VINDAS VIA RESEND) ---
-def send_welcome_email(client_email, client_name, api_key):
+# --- 7. FUNÇÃO DE ENVIO DE E-MAIL (BOAS-VINDAS PROFISSIONAL B2B) ---
+def send_welcome_email(client_email, client_name):
     if not resend.api_key:
         print("Aviso: Chave da API do Resend não configurada. E-mail não enviado.")
         return
 
     html_body = f"""
     <html>
-    <body style="font-family: sans-serif; color: #333;">
+    <body style="font-family: sans-serif; color: #333; line-height: 1.6;">
         <h2>Olá, {client_name}!</h2>
-        <p>A sua conta na plataforma Verisignum foi criada com sucesso.</p>
-        <p>Abaixo está a sua <strong>Chave de API de Produção</strong>. Guarde-a em segurança, pois ela concede acesso aos nossos serviços de assinatura C2PA.</p>
-        <div style="background-color: #f4f4f4; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 1.2em; margin: 20px 0;">
-            {api_key}
-        </div>
-        <p>Para começar a integrar, consulte a nossa documentação.</p>
-        <p>Atenciosamente,<br>A Equipa Verisignum</p>
+        <p>A sua conta na plataforma <strong>Verisignum AI</strong> foi criada com sucesso.</p>
+        <p>A partir de agora, a sua instituição pode blindar fotografias, áudios e vídeos contra fraudes e deepfakes através do nosso motor de proveniência criptográfica (C2PA).</p>
+        <p>Faça login no painel para acessar o <strong>VerisignumShield</strong> e consultar a documentação para a sua equipa de TI.</p>
+        <br>
+        <p>Desejamos-lhe muito sucesso,<br><strong>A Equipa Verisignum</strong></p>
     </body>
     </html>
     """
@@ -146,7 +144,7 @@ def send_welcome_email(client_email, client_name, api_key):
     params = {
         "from": "Verisignum AI <onboarding@resend.dev>",
         "to": [client_email],
-        "subject": "Bem-vindo à Verisignum - A sua Chave de API",
+        "subject": "Bem-vindo à Verisignum AI - Infraestrutura de Confiança",
         "html": html_body,
     }
 
@@ -177,16 +175,16 @@ def register_client(name: str, email: str, password: str, db: Session = Depends(
         email=email, 
         hashed_password=hashed_password, 
         api_key=new_api_key,
-        is_active=False # Começa inativo até pagar (ou trial)
+        is_active=False # STATUS INATIVO: A aguardar pagamento na Stripe
     )
     db.add(new_client)
     db.commit()
     db.refresh(new_client)
     
-    # 4. Envia o e-mail de boas-vindas imediatamente e sem bloqueios!
-    send_welcome_email(email, name, new_api_key)
+    # 4. Envia o e-mail de boas-vindas limpo
+    send_welcome_email(email, name)
     
-    return {"message": "Conta criada com sucesso! Verifique seu e-mail para obter a API Key.", "client_id": new_client.id}
+    return {"message": "Conta criada com sucesso!", "client_id": new_client.id}
 
 @app.post("/v1/auth/login")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -481,17 +479,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
