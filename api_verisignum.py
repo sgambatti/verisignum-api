@@ -140,9 +140,9 @@ def send_welcome_email(client_email, client_name):
     </html>
     """
 
-    # O Resend exige o remetente de teste (onboarding@resend.dev) até você verificar o seu domínio
+    # CORREÇÃO: Agora usamos o seu domínio oficial verificado!
     params = {
-        "from": "Verisignum AI <onboarding@resend.dev>",
+        "from": "Verisignum AI <contato@verisignumdigital.com>",
         "to": [client_email],
         "subject": "Bem-vindo à Verisignum AI - Infraestrutura de Confiança",
         "html": html_body,
@@ -251,9 +251,10 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # Caminhos dos certificados
-        cert_path = os.getenv("PROD_CERT_PATH", "producao_cert.pem")
-        key_path = os.getenv("PROD_KEY_PATH", "producao_key.pem")
+        # CORREÇÃO: Caminhos dos certificados convertidos para Absolutos 
+        # (Isso impede que o motor em Rust se perca nas pastas do Linux)
+        cert_path = os.path.abspath(os.getenv("PROD_CERT_PATH", "producao_cert.pem"))
+        key_path = os.path.abspath(os.getenv("PROD_KEY_PATH", "producao_key.pem"))
 
         # --- AUTO-GERAÇÃO DE CERTIFICADOS MVP ---
         # Garante que o servidor nunca falha por falta de chave criptográfica
