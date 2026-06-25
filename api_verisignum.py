@@ -132,9 +132,13 @@ def send_welcome_email(client_email, client_name):
     <body style="font-family: sans-serif; color: #333; line-height: 1.6;">
         <h2>Olá, {client_name}!</h2>
         <p>A sua conta na plataforma <strong>Verisignum AI</strong> foi criada com sucesso.</p>
-        <p>A partir de agora, a sua instituição pode blindar fotografias, áudios, vídeos, <strong>arquivos e documentos em PDF</strong> contra fraudes e deepfakes através do nosso motor de proveniência criptográfica (C2PA).</p>
-        <p>Faça login no painel para acessar o <strong>VerisignumShield</strong>, explorar as análises forenses do <strong>VerisignumLens</strong> e consultar a documentação de integração para a sua <strong>equipe</strong> de TI.</p>
-        <br>
+        <p>A partir de agora, a sua instituição pode blindar fotografias, áudios, vídeos, arquivos e documentos em PDF contra fraudes e deepfakes através do nosso motor de proveniência criptográfica (C2PA).</p>
+        <p>Faça login no painel para acessar o <strong>VerisignumShield</strong>, explorar as análises forenses do <strong>VerisignumLens</strong> e consultar a documentação de integração para a sua equipe de TI.</p>
+        
+        <p style="margin-top: 25px; margin-bottom: 25px;">
+            <a href="https://verisignumdigital.com" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Acessar a Plataforma</a>
+        </p>
+        
         <p>Desejamos-lhe muito sucesso,<br><strong>A Equipe Verisignum</strong></p>
     </body>
     </html>
