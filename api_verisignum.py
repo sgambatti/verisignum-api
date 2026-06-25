@@ -314,13 +314,11 @@ async def verificar_midia(
                 detail="Free Trial esgotado (5/5 usos). Por favor, ative a sua assinatura na aba Admin para continuar."
             )
     
-    # 1. Salva arquivo temporário para enviar para a Hive
     caminho_temp = os.path.join(UPLOAD_DIR, f"lens_{file.filename}")
     try:
         with open(caminho_temp, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 2. Chama a API Real da Hive
         hive_api_key = os.getenv("HIVE_API_KEY")
         
         final_score = 85
@@ -329,16 +327,21 @@ async def verificar_midia(
 
         if hive_api_key:
             logger.info("A iniciar contacto com a HIVE AI...")
-            # Limpeza cirúrgica da chave (remove espaços invisíveis)
-            chave_limpa = hive_api_key.strip()
             
+            # --- PROTEÇÃO CONTRA ERROS DE FORMATAÇÃO DE CHAVE (O CULPADO DO 401) ---
+            # Removemos espaços, quebras de linha e a palavra "token" se o utilizador a colou por engano
+            chave_limpa = hive_api_key.strip()
+            if chave_limpa.lower().startswith("token"):
+                chave_limpa = chave_limpa[5:].strip()
+                
+            # O cabeçalho Authorization tem que ter o A maiúsculo e a estrutura exata "token XXXXX"
             headers = {
-                "authorization": f"token {chave_limpa}",
-                "accept": "application/json"
+                "Authorization": f"token {chave_limpa}",
+                "Accept": "application/json"
             }
             
             with open(caminho_temp, "rb") as f:
-                # Mudámos para a V3 conforme o seu painel da Hive
+                # Utilizamos a V3 pois a sua chave é exclusiva para a V3
                 response = requests.post(
                     "https://api.thehive.ai/api/v3/task/sync", 
                     headers=headers, 
@@ -380,7 +383,6 @@ async def verificar_midia(
                     logger.error(f"Erro ao parsear dados da Hive: {parse_err}")
                     anomalies.append("Erro na descodificação do laudo heurístico da Hive AI.")
             else:
-                # A CARTA NA MANGA: Se a Hive falhar, capturamos o erro exato e pomos no laudo!
                 erro_txt = response.text
                 logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
                 
