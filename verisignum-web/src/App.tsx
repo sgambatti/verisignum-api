@@ -95,7 +95,6 @@ export default function App() {
 
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
-  const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -209,7 +208,10 @@ export default function App() {
       
       const data = await response.json();
       
+      // 1. Copia o link para a área de transferência silenciosamente (para colar num e-mail)
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
+      
+      // 2. NOVA LINHA: Abre a página de checkout da Stripe numa nova aba automaticamente!
       window.open(data.checkout_url, '_blank');
       
     } catch (error: any) {
@@ -237,12 +239,12 @@ export default function App() {
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
 
-      const token = localStorage.getItem('access_token'); 
+      const token = localStorage.getItem('access_token'); // Recupera o crachá guardado no Login
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${token}` // Mostra o crachá ao porteiro!
         },
         body: formData,
         signal: controller.signal
@@ -340,21 +342,19 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setScanStep('A enviar arquivo para o servidor forense Verisignum...');
     setCopyStatus(prev => ({ ...prev, error: null }));
 
     try {
+      // 1. Enviar o arquivo suspeito para a API (O Detector)
       const formData = new FormData();
       formData.append("file", lensFile);
 
-      const token = localStorage.getItem('access_token'); 
-
-      setScanStep('A analisar metadados e quebrar criptografia C2PA...');
+      const token = localStorage.getItem('access_token'); // Recupera o crachá guardado no Login
 
       const response = await fetch(RENDER_VERIFY_URL, {
         method: "POST",
         headers: {
-          'Authorization': `Bearer ${token}` 
+          'Authorization': `Bearer ${token}` // Mostra o crachá ao porteiro!
         },
         body: formData,
       });
@@ -370,43 +370,39 @@ export default function App() {
 
       const verifyData = await response.json();
 
-      setScanStep('A rastrear artefactos de compressão e difusão de IA...');
       await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-      const isFakeName = lensFile.name.toLowerCase().includes('fake') || lensFile.name.toLowerCase().includes('ia') || lensFile.name.toLowerCase().includes('sintetico');
-      const hasC2PA = verifyData.has_c2pa;
-      
-      let finalScore = 0;
-      let anomalies: string[] = [];
-
-      if (hasC2PA) {
-         finalScore = 98;
-         anomalies.push(`Selo C2PA VÁLIDO: Assinado por ${verifyData.manifest?.author?.[0]?.name || 'Verisignum'}.`);
-         anomalies.push('Cadeia de custódia inalterada desde a captura original.');
+      if (verifyData.has_c2pa) {
+        setScanResult({
+          score: 100,
+          isAiGenerated: false,
+          metadataFound: true,
+          anomalies: [
+            'Selo C2PA Autêntico: Validado internamente pela Verisignum.',
+            'Cadeia de custódia e integridade de píxeis intactas.',
+            'O ficheiro não sofreu qualquer alteração desde a sua captura.'
+          ]
+        });
       } else {
-         finalScore = isFakeName ? 15 : 65;
-         anomalies.push('ALERTA: Nenhuma assinatura criptográfica C2PA encontrada.');
-         if (isFakeName) anomalies.push('Inconsistências espaciais e ruído de difusão de IA detetados (Possível Deepfake).');
-         else anomalies.push('Estrutura de píxeis aparenta ser natural, mas a origem não é rastreável.');
+        await new Promise(resolve => setTimeout(resolve, 1500)); 
+
+        const aiData = verifyData.ai_analysis;
+
+        setScanResult({
+          score: aiData?.score || 65,
+          isAiGenerated: aiData?.is_ai || false,
+          metadataFound: false,
+          anomalies: aiData?.anomalies || ['Nenhum selo de proveniência rastreável.']
+        });
       }
-
-      setScanResult({
-        score: finalScore,
-        isAiGenerated: !hasC2PA && finalScore < 50,
-        metadataFound: hasC2PA,
-        anomalies: anomalies
-      });
-
     } catch (err: any) {
       console.error("Erro no Lens:", err);
       setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
     } finally {
       setIsScanning(false);
-      setScanStep('');
     }
   };
 
-  // === GERADOR DE LAUDO FORENSE EM PDF ===
   const handleDownloadPDF = () => {
     if (!scanResult || !lensFile) return;
     
@@ -546,7 +542,16 @@ export default function App() {
         <div>
           <div className="p-6 border-b border-[#30363d] flex items-center gap-3">
             <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              <Shield size={24} className="text-amber-500 animate-pulse" />
+              <img 
+                src="/logo.png" 
+                alt="Verisignum Logo" 
+                className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" 
+                onError={(e) => { 
+                  e.currentTarget.style.display = 'none'; 
+                  e.currentTarget.parentElement?.querySelector('svg')?.classList.remove('hidden'); 
+                }} 
+              />
+              <Shield size={24} className="text-amber-500 hidden animate-pulse" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
@@ -567,7 +572,6 @@ export default function App() {
             <div className="h-px bg-[#30363d] w-full mb-2"></div>
             <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
               <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
-              <Lock size={14} className="opacity-50"/>
             </button>
           </div>
           
@@ -677,6 +681,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
@@ -709,6 +714,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA SHIELD */}
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
@@ -764,6 +770,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA LENS */}
           {activeTab === 'lens' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
@@ -783,7 +790,6 @@ export default function App() {
                   <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
                   </button>
-                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
                 </form>
               </div>
 
@@ -799,7 +805,7 @@ export default function App() {
                           </div>
                         </div>
                         <div className="space-y-2">
-                          {scanResult.anomalies.map((anomaly, idx) => (
+                          {scanResult.anomalies.map((anomaly: string, idx: number) => (
                              <div key={idx} className="flex gap-2.5 items-start bg-[#0d1117] p-3 border border-[#30363d] rounded-lg">
                                 <p className="text-xs text-gray-300">{anomaly}</p>
                              </div>
@@ -827,6 +833,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA API */}
           {activeTab === 'api' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
@@ -835,12 +842,13 @@ export default function App() {
                 </h3>
                 <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between font-mono text-xs text-indigo-400">
                    {isKeyVisible ? apiKey : '••••••••••••••••••••••••••••••••'}
-                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white">Revelar</button>
+                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white hover:text-indigo-400 transition-colors">Revelar</button>
                 </div>
               </div>
             </div>
           )}
 
+          {/* ABA COPILOT */}
           {activeTab === 'copilot' && (
             <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[500px]">
               <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2">
