@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Shield, 
   Eye, 
@@ -15,10 +15,11 @@ import {
   Loader2,
   Lock,
   AlertCircle,
-  FileText
+  FileText,
+  LogOut
 } from 'lucide-react';
 
-// Interfaces TypeScript
+// Interfaces TypeScript Rigorosas
 interface Asset {
   id: string;
   name: string;
@@ -73,42 +74,141 @@ const INITIAL_CLIENTS: ClientTenant[] = [
   { id: '2', name: 'Universidade Veritas', apiKey: 'vsg_live_8f7b2c9a1d4...', usageCount: 350, plan: 'Pro', status: 'Ativo' },
 ];
 
+// URLs do Backend no Render
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/clients";
 const RENDER_COPILOT_URL = "https://verisignum-api.onrender.com/v1/copilot/chat";
 const RENDER_BILLING_URL = "https://verisignum-api.onrender.com/v1/billing/create-checkout-session";
+const RENDER_AUTH_LOGIN_URL = "https://verisignum-api.onrender.com/v1/auth/login";
+const RENDER_AUTH_REGISTER_URL = "https://verisignum-api.onrender.com/v1/auth/register";
+const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboard/me";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<string>('admin'); 
-  const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
-  const [apiKey] = useState<string>('vsg_live_4b8c12a7e9f310d5c8b2a3');
-  const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
-  
-  const [copyStatus, setCopyStatus] = useState<CopyStatus | any>({ hash: false, key: false, error: null });
+  // --- Estados de Autenticação (Login) ---
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authName, setAuthName] = useState<string>('');
+  const [authEmail, setAuthEmail] = useState<string>('');
+  const [authPassword, setAuthPassword] = useState<string>('');
+  const [authLoading, setAuthLoading] = useState<boolean>(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [clientData, setClientData] = useState<any>(null);
 
+  // --- Estados do Dashboard ---
+  const [activeTab, setActiveTab] = useState<string>('dashboard'); 
+  const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
+  const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
+
+  // --- Estados do Shield ---
   const [shieldFile, setShieldFile] = useState<File | null>(null);
   const [author, setAuthor] = useState<string>('');
   const [org, setOrg] = useState<string>('');
   const [isShielding, setIsShielding] = useState<boolean>(false);
+  const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
 
+  // --- Estados do Lens ---
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   
+  // --- Estados do Copilot ---
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     { role: 'assistant', text: 'Olá! Sou o seu Verisignum Compliance Copilot. Como posso ajudar hoje?' }
   ]);
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 
-  // Admin State
+  // --- Estados do Admin ---
   const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
   const [newClientName, setNewClientName] = useState<string>('');
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
+  // --- Verificação de Sessão Inicial ---
+  const fetchDashboardData = async (token: string) => {
+    try {
+      const res = await fetch(RENDER_DASHBOARD_ME_URL, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setClientData(data);
+      } else {
+        handleLogout(); 
+      }
+    } catch (err) {
+      console.error("Erro ao buscar dados reais", err);
+    }
+  };
+
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (token) {
+      setIsAuthenticated(true);
+      fetchDashboardData(token);
+    }
+  }, []);
+
+  // --- Funções de Autenticação (Login e Logoff) ---
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError(null);
+
+    try {
+      if (authMode === 'register') {
+        const url = new URL(RENDER_AUTH_REGISTER_URL);
+        url.searchParams.append('name', authName);
+        url.searchParams.append('email', authEmail);
+        url.searchParams.append('password', authPassword);
+
+        const res = await fetch(url.toString(), { method: 'POST' });
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || 'Erro ao criar conta.');
+        }
+        setAuthMode('login');
+        setAuthError('Conta criada! Verifique o seu e-mail corporativo (Boas-vindas) e faça login.');
+      } else {
+        const formData = new URLSearchParams();
+        formData.append('username', authEmail);
+        formData.append('password', authPassword);
+
+        const res = await fetch(RENDER_AUTH_LOGIN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData.toString()
+        });
+        
+        if (!res.ok) {
+            const error = await res.json();
+            throw new Error(error.detail || 'Credenciais inválidas.');
+        }
+
+        const data = await res.json();
+        localStorage.setItem('access_token', data.access_token);
+        setIsAuthenticated(true);
+        fetchDashboardData(data.access_token); 
+      }
+    } catch (err: any) {
+      setAuthError(err.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('access_token');
+    setIsAuthenticated(false);
+    setClientData(null);
+    setActiveTab('dashboard'); // Volta para a tab inicial
+  };
+
+  // --- Funções Utilitárias Tipificadas ---
   const safeCopyToClipboard = (text: string, type: 'hash' | 'key' | string): void => {
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
     const setSuccess = () => {
@@ -141,6 +241,7 @@ export default function App() {
     }
   };
 
+  // --- Funções do Admin ---
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClientName.trim()) return;
@@ -170,7 +271,7 @@ export default function App() {
       setNewClientName('');
       
     } catch (error) {
-      console.warn("API de Admin offline. A simular criação local...");
+      console.warn("API offline. Simulação de Fallback local...");
       const mockKey = 'vsg_live_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
       
       const newTenant: ClientTenant = {
@@ -207,11 +308,7 @@ export default function App() {
       }
       
       const data = await response.json();
-      
-      // 1. Copia o link para a área de transferência silenciosamente (para colar num e-mail)
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
-      
-      // 2. Abre a página de checkout da Stripe numa nova aba automaticamente!
       window.open(data.checkout_url, '_blank');
       
     } catch (error: any) {
@@ -222,12 +319,14 @@ export default function App() {
     }
   };
 
+  // --- Funções Core (Shield & Lens) ---
   const handleShieldSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (!shieldFile) return;
 
     setIsShielding(true);
     setShieldResult(null);
+    setShieldStep('A ligar à API Verisignum no Render...');
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     const controller = new AbortController();
@@ -239,13 +338,14 @@ export default function App() {
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
 
-      const token = localStorage.getItem('access_token'); // Recupera o crachá guardado no Login
+      const token = localStorage.getItem('access_token'); 
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      setShieldStep('A enviar arquivo e a injetar certificado C2PA...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}` // Mostra o crachá ao porteiro!
-        },
+        headers: headers,
         body: formData,
         signal: controller.signal
       });
@@ -261,6 +361,8 @@ export default function App() {
         throw new Error(errorMsg);
       }
 
+      setShieldStep('Sucesso! Arquivo criptografado recebido da nuvem.');
+
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
          const data = await response.json();
@@ -269,7 +371,6 @@ export default function App() {
                hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Verificado)',
                manifest: JSON.stringify({ "status": "Assinado no backend via motor oficial", "filename": data.filename }, null, 2)
              });
-             setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
          }
       } else {
         const signedBlob = await response.blob();
@@ -298,7 +399,6 @@ export default function App() {
         author: author || 'Autor Desconhecido'
       };
       setAssets([newAsset, ...assets]);
-      setIsShielding(false);
 
     } catch (err: any) {
       clearTimeout(timeoutId);
@@ -306,6 +406,8 @@ export default function App() {
       
       let mensagemErro = err.message;
       if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setShieldStep('Servidor indisponível ou erro CORS. A simular injeção local (Fallback MVP)...');
+        
         setTimeout(() => {
           setShieldResult({
             hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Simulado)',
@@ -322,16 +424,15 @@ export default function App() {
             author: author || 'Autor Desconhecido'
           };
           setAssets([newAsset, ...assets]);
-          setIsShielding(false);
           setCopyStatus((prev: CopyStatus) => ({ 
             ...prev, 
-            error: "Aviso: A ligação à API Render falhou. Certifique-se de que a API está online." 
+            error: "Aviso: Conexão com o Render falhou. O arquivo gerado abaixo é uma simulação para testes visuais." 
           }));
         }, 1500);
-        return; 
+      } else {
+        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${mensagemErro}` }));
       }
-
-      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${mensagemErro}` }));
+    } finally {
       setIsShielding(false);
     }
   };
@@ -342,25 +443,26 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null })); // <-- CORRIGIDO AQUI!
+    setScanStep('A enviar arquivo para a API e Hive AI...');
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     try {
-      // 1. Enviar o arquivo suspeito para a API (O Detector)
       const formData = new FormData();
       formData.append("file", lensFile);
 
-      const token = localStorage.getItem('access_token'); // Recupera o crachá guardado no Login
+      const token = localStorage.getItem('access_token');
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+      setScanStep('A analisar metadados C2PA e extrair Laudo...');
 
       const response = await fetch(RENDER_VERIFY_URL, {
         method: "POST",
-        headers: {
-          'Authorization': `Bearer ${token}` // Mostra o crachá ao porteiro!
-        },
-        body: formData,
+        headers: headers,
+        body: formData
       });
 
       if (!response.ok) {
-        let errorMsg = 'Falha ao comunicar com o VerisignumLens na nuvem.';
+        let errorMsg = "Servidor de verificação inacessível.";
         try {
           const errorData = await response.json();
           errorMsg = errorData.detail || errorMsg;
@@ -370,7 +472,10 @@ export default function App() {
 
       const verifyData = await response.json();
 
-      await new Promise(resolve => setTimeout(resolve, 1500)); 
+      setScanStep('Processamento forense completo. A compilar resultados...');
+      await new Promise(resolve => setTimeout(resolve, 1000)); 
+
+      const aiData = verifyData.ai_analysis;
 
       if (verifyData.has_c2pa) {
         setScanResult({
@@ -378,16 +483,12 @@ export default function App() {
           isAiGenerated: false,
           metadataFound: true,
           anomalies: [
-            'Selo C2PA Autêntico: Validado internamente pela Verisignum.',
+            'Selo C2PA Autêntico: Validado pela Verisignum.',
             'Cadeia de custódia e integridade de píxeis intactas.',
             'O ficheiro não sofreu qualquer alteração desde a sua captura.'
           ]
         });
       } else {
-        await new Promise(resolve => setTimeout(resolve, 1500)); 
-
-        const aiData = verifyData.ai_analysis;
-
         setScanResult({
           score: aiData?.score || 65,
           isAiGenerated: aiData?.is_ai || false,
@@ -397,16 +498,16 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Erro no Lens:", err);
-      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` })); // <-- CORRIGIDO AQUI!
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
     } finally {
       setIsScanning(false);
+      setScanStep('');
     }
   };
 
   const handleDownloadPDF = () => {
     if (!scanResult || !lensFile) return;
     
-    // Abre uma nova janela invisível para imprimir o relatório formatado
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) {
         setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "O seu navegador bloqueou a abertura do PDF (Pop-up blocker). Permita pop-ups para este site." }));
@@ -494,7 +595,6 @@ export default function App() {
     printWindow.document.close();
     printWindow.focus();
     
-    // Aguarda o HTML renderizar perfeitamente e invoca a impressão
     setTimeout(() => {
       printWindow.print();
       printWindow.close();
@@ -528,6 +628,71 @@ export default function App() {
     }
   };
 
+  // --- Ecrã de Proteção (Login / Registo) ---
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-indigo-500/10 blur-[60px] pointer-events-none"></div>
+          
+          <div className="flex flex-col items-center mb-8 relative z-10">
+            <div className="w-14 h-14 bg-[#0d1117] border border-[#30363d] rounded-xl flex items-center justify-center mb-4 shadow-lg">
+              <Shield className="text-indigo-500" size={28} />
+            </div>
+            <h1 className="text-2xl font-bold text-white tracking-wider">VERISIGNUM</h1>
+            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Enterprise Portal</p>
+          </div>
+
+          <form onSubmit={handleAuth} className="space-y-4 relative z-10">
+            {authMode === 'register' && (
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
+                <input 
+                  type="text" value={authName} onChange={(e) => setAuthName(e.target.value)}
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                  required placeholder="Ex: Universidade de Lisboa"
+                />
+              </div>
+            )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
+              <input 
+                type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="diretor@edtech.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-400">Senha Segura</label>
+              <input 
+                type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="••••••••"
+              />
+            </div>
+
+            {authError && (
+              <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${authError.includes('criada') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                <AlertCircle size={16} className="flex-shrink-0" /> <span className="leading-tight">{authError}</span>
+              </div>
+            )}
+
+            <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
+              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Aderir à Plataforma')}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+              {authMode === 'login' ? 'Nova EdTech? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // --- Painel de Controlo Principal ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -575,14 +740,25 @@ export default function App() {
             </button>
           </div>
           
+          {/* NOVA SECÇÃO COM BOTÃO DE SAIR / LOGOFF */}
           <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400">PM</div>
-              <div>
-                <p className="text-xs font-semibold text-white">Modo Solopreneur</p>
-                <p className="text-[10px] text-gray-500">Métricas: Alta Escala</p>
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400 flex-shrink-0">
+                {clientData?.name ? clientData.name.charAt(0).toUpperCase() : 'V'}
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-semibold text-white truncate" title={clientData?.name}>{clientData?.name || 'Administrador'}</p>
+                <p className="text-[10px] text-gray-500 truncate" title={clientData?.email}>{clientData?.email || 'Acesso Verificado'}</p>
               </div>
             </div>
+            
+            <button 
+              onClick={handleLogout} 
+              className="flex items-center justify-center gap-2 w-full bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white border border-red-500/20 py-2 rounded-lg text-xs font-semibold transition-all group"
+            >
+              <LogOut size={14} className="group-hover:-translate-x-1 transition-transform" /> 
+              Sair da Plataforma
+            </button>
           </div>
         </div>
       </aside>
@@ -747,6 +923,7 @@ export default function App() {
                   <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isShielding ? <Loader2 className="animate-spin" /> : 'Assinar Mídia'}
                   </button>
+                  {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{shieldStep}</p>}
                 </form>
               </div>
 
@@ -790,6 +967,7 @@ export default function App() {
                   <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
                   </button>
+                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
                 </form>
               </div>
 
@@ -820,7 +998,7 @@ export default function App() {
                     )}
                   </div>
 
-                  {/* NOVO BOTÃO DE EXPORTAÇÃO PDF */}
+                  {/* BOTÃO DE EXPORTAÇÃO PDF */}
                   {scanResult && (
                     <button 
                       onClick={handleDownloadPDF}
@@ -841,7 +1019,7 @@ export default function App() {
                   <Key className="text-indigo-500" /> API Access Keys
                 </h3>
                 <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between font-mono text-xs text-indigo-400">
-                   {isKeyVisible ? apiKey : '••••••••••••••••••••••••••••••••'}
+                   {isKeyVisible ? clientData?.api_key || 'A carregar...' : '••••••••••••••••••••••••••••••••'}
                    <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white hover:text-indigo-400 transition-colors">Revelar</button>
                 </div>
               </div>
