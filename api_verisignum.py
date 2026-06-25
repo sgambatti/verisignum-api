@@ -250,20 +250,26 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # 1. GERAÇÃO DO CERTIFICADO BLINDADO
+        # 1. GERAÇÃO DO CERTIFICADO BLINDADO DIRETAMENTE EM DISCO
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography import x509
         from cryptography.x509.oid import NameOID
         from datetime import datetime, timedelta
+        import subprocess
+        import json
+
+        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_cert.pem"))
+        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_key.pem"))
 
         # Curva exata que o motor exige (P-256)
         private_key = ec.generate_private_key(ec.SECP256R1())
-        key_bytes = private_key.private_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PrivateFormat.PKCS8,
-            encryption_algorithm=serialization.NoEncryption()
-        )
+        with open(key_path, "wb") as f:
+            f.write(private_key.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption()
+            ))
 
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
@@ -273,18 +279,21 @@ async def assinar_midia(
         cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
             private_key.public_key()
         ).serial_number(x509.random_serial_number()).not_valid_before(
-            # A CORREÇÃO DE OURO: Subtrair 1 dia (24h) da criação. 
-            # Isso mata matematicamente a possibilidade de rejeição por "Clock Skew".
+            # CLOCK SKEW RESOLVIDO: O certificado já "nasce" com 24h de idade.
             datetime.utcnow() - timedelta(days=1)
         ).not_valid_after(
             datetime.utcnow() + timedelta(days=3650)
         ).sign(private_key, hashes.SHA256())
 
-        cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
 
-        # 2. MANIFESTO LIMPO
+        # 2. MANIFESTO PARA O C2PATOOL NATIVO
         manifesto_dict = {
-            "claim_generator": "Verisignum_Shield/8.0",
+            "claim_generator": "Verisignum_Shield/9.0",
+            "alg": "es256",
+            "private_key": key_path,
+            "sign_cert": cert_path,
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -297,37 +306,29 @@ async def assinar_midia(
                 }
             ]
         }
-
-        # 3. MOTOR PYTHON DIRETO EM MEMÓRIA (CASCATA ABSOLUTA)
-        # Em vez de ler ficheiros no Linux, injetamos os BYTES diretamente no motor Rust.
-        import c2pa
-        import json
-        assinado_sucesso = False
-
-        try:
-            # Para c2pa-python versão 0.6.0 ou superior (A mais provável no Render)
-            signer = c2pa.Signer("es256", sign_cert=cert_bytes, private_key=key_bytes)
-            builder = c2pa.Builder(manifesto_dict)
-            builder.sign_file(caminho_entrada, caminho_saida, signer)
-            assinado_sucesso = True
-        except Exception:
-            try:
-                # Para c2pa-python versão 0.5.x
-                signer = c2pa.Signer({"alg": "es256", "sign_cert": cert_bytes, "private_key": key_bytes})
-                builder = c2pa.Builder(manifesto_dict)
-                builder.sign_file(caminho_entrada, caminho_saida, signer)
-                assinado_sucesso = True
-            except Exception:
-                try:
-                    # Para c2pa-python versão 0.4.x
-                    signer = c2pa.create_signer({"alg": "es256", "sign_cert": cert_bytes, "private_key": key_bytes})
-                    c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer)
-                    assinado_sucesso = True
-                except Exception as ex_final:
-                    raise Exception(f"Falha em todas as versões da API C2PA. Erro raiz: {ex_final}")
-
-        if not assinado_sucesso:
-            raise Exception("O processo finalizou sem acionar o motor de assinatura.")
+        
+        manifest_file = caminho_entrada + ".json"
+        with open(manifest_file, "w") as mf:
+            json.dump(manifesto_dict, mf)
+        
+        # 3. A SOLUÇÃO: Comunicação Direta com o Terminal do Linux
+        # Nós evitamos completamente a biblioteca Python corrompida.
+        cmd = [
+            "c2patool", caminho_entrada, 
+            "-m", manifest_file, 
+            "-o", caminho_saida, 
+            "--force"
+        ]
+        
+        logger.info("Acionando o c2patool CLI nativo do Docker de forma forçada...")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        
+        # Limpeza do ficheiro de manifesto
+        if os.path.exists(manifest_file):
+            os.remove(manifest_file)
+            
+        if result.returncode != 0:
+            raise Exception(f"Erro Fatal no motor binário: {result.stderr}")
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
