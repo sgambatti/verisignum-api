@@ -250,7 +250,7 @@ async def assinar_midia(
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # 1. GERAÇÃO DO CERTIFICADO BLINDADO DIRETAMENTE EM DISCO
+        # 1. GERAÇÃO DO CERTIFICADO BLINDADO (O PADRÃO OURO FINAL)
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography import x509
@@ -259,15 +259,16 @@ async def assinar_midia(
         import subprocess
         import json
 
-        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_cert.pem"))
-        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_key.pem"))
+        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_cert_v10.pem"))
+        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_key_v10.pem"))
 
         # Curva exata que o motor exige (P-256)
         private_key = ec.generate_private_key(ec.SECP256R1())
         with open(key_path, "wb") as f:
             f.write(private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
+                # CORREÇÃO 1: Formato TraditionalOpenSSL (SEC1) que o parser em Rust prefere nativamente
+                format=serialization.PrivateFormat.TraditionalOpenSSL, 
                 encryption_algorithm=serialization.NoEncryption()
             ))
 
@@ -276,13 +277,24 @@ async def assinar_midia(
             x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
         ])
         
+        # CORREÇÃO 2: EXTENSÕES OBRIGATÓRIAS (Impede o "COSE error parsing certificate")
+        ski = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
+        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key())
+
         cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
             private_key.public_key()
         ).serial_number(x509.random_serial_number()).not_valid_before(
-            # CLOCK SKEW RESOLVIDO: O certificado já "nasce" com 24h de idade.
-            datetime.utcnow() - timedelta(days=1)
+            datetime.utcnow() - timedelta(days=1) # CORREÇÃO 3: ANTI CLOCK-SKEW
         ).not_valid_after(
             datetime.utcnow() + timedelta(days=3650)
+        ).add_extension(
+            x509.BasicConstraints(ca=False, path_length=None), critical=True
+        ).add_extension(
+            x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
+        ).add_extension(
+            ski, critical=False # O C2PA usa isto para gerar o 'kid' (Key ID) obrigatório do envelope!
+        ).add_extension(
+            aki, critical=False
         ).sign(private_key, hashes.SHA256())
 
         with open(cert_path, "wb") as f:
@@ -290,10 +302,11 @@ async def assinar_midia(
 
         # 2. MANIFESTO PARA O C2PATOOL NATIVO
         manifesto_dict = {
-            "claim_generator": "Verisignum_Shield/9.0",
+            "claim_generator": "Verisignum_Shield/10.0",
             "alg": "es256",
             "private_key": key_path,
             "sign_cert": cert_path,
+            "ta_url": "http://timestamp.digicert.com", # CORREÇÃO 4: Time Authority (Garante validade global temporal)
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -311,8 +324,7 @@ async def assinar_midia(
         with open(manifest_file, "w") as mf:
             json.dump(manifesto_dict, mf)
         
-        # 3. A SOLUÇÃO: Comunicação Direta com o Terminal do Linux
-        # Nós evitamos completamente a biblioteca Python corrompida.
+        # 3. Comunicação Direta com o Terminal do Linux
         cmd = [
             "c2patool", caminho_entrada, 
             "-m", manifest_file, 
@@ -320,10 +332,10 @@ async def assinar_midia(
             "--force"
         ]
         
-        logger.info("Acionando o c2patool CLI nativo do Docker de forma forçada...")
+        logger.info("Acionando o c2patool CLI com certificado X.509 completo e SKI...")
         result = subprocess.run(cmd, capture_output=True, text=True)
         
-        # Limpeza do ficheiro de manifesto
+        # Limpeza
         if os.path.exists(manifest_file):
             os.remove(manifest_file)
             
