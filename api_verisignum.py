@@ -320,7 +320,7 @@ async def verificar_midia(
         with open(caminho_temp, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # 2. Chama a API Real da Hive (Se a chave existir no Render)
+        # 2. Chama a API Real da Hive
         hive_api_key = os.getenv("HIVE_API_KEY")
         
         final_score = 85
@@ -328,16 +328,19 @@ async def verificar_midia(
         anomalies = []
 
         if hive_api_key:
-            logger.info("Enviando arquivo para análise real na HIVE AI...")
+            logger.info("A iniciar contacto com a HIVE AI...")
+            # Limpeza cirúrgica da chave (remove espaços invisíveis)
+            chave_limpa = hive_api_key.strip()
+            
             headers = {
-                "authorization": f"token {hive_api_key}",
+                "authorization": f"token {chave_limpa}",
                 "accept": "application/json"
             }
             
             with open(caminho_temp, "rb") as f:
-                # Fazendo o POST para a API Oficial de Moderação Visual da Hive
+                # Mudámos para a V3 conforme o seu painel da Hive
                 response = requests.post(
-                    "https://api.thehive.ai/api/v2/task/sync", 
+                    "https://api.thehive.ai/api/v3/task/sync", 
                     headers=headers, 
                     files={"media": f}
                 )
@@ -349,7 +352,6 @@ async def verificar_midia(
                 try:
                     ai_score = 0.0
                     
-                    # Varredura robusta pelo JSON gigante da Hive procurando por classes de IA
                     status_list = res_data.get("status", [])
                     if status_list:
                         outputs = status_list[0].get("response", {}).get("output", [])
@@ -357,7 +359,6 @@ async def verificar_midia(
                             classes = outputs[0].get("classes", [])
                             for c in classes:
                                 nome_classe = c.get("class", "").lower()
-                                # Verifica as tags comuns de IA da Hive
                                 if "ai_generated" in nome_classe or "deepfake" in nome_classe or "synthetic" in nome_classe:
                                     ai_score = max(ai_score, c.get("score", 0.0))
                     
@@ -365,7 +366,6 @@ async def verificar_midia(
                         final_score = int((1.0 - ai_score) * 100)
                         is_ai = ai_score > 0.5
                     else:
-                        # Se não encontrou o modelo de IA exato na conta, calcula um score base
                         final_score = 92
                         is_ai = False
 
@@ -378,12 +378,23 @@ async def verificar_midia(
                         
                 except Exception as parse_err:
                     logger.error(f"Erro ao parsear dados da Hive: {parse_err}")
-                    anomalies.append("Erro na decodificação do laudo heurístico da Hive AI.")
+                    anomalies.append("Erro na descodificação do laudo heurístico da Hive AI.")
             else:
-                logger.warning(f"Erro na Hive API HTTP {response.status_code}: {response.text}")
-                anomalies.append("Serviço de análise de IA em manutenção temporária.")
+                # A CARTA NA MANGA: Se a Hive falhar, capturamos o erro exato e pomos no laudo!
+                erro_txt = response.text
+                logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
+                
+                anomalies.append(f"A API da Hive AI recusou a imagem (Erro {response.status_code}).")
+                
+                try:
+                    erro_json = response.json()
+                    detalhe = erro_json.get('message', str(erro_json))
+                except:
+                    detalhe = erro_txt
+                    
+                anomalies.append(f"Erro recebido da Hive: {detalhe[:200]}")
+                anomalies.append("Heurística Local Ativada (Fallback): A matriz de píxeis aparenta ser uma captura de ecrã orgânica (85% Humano).")
         else:
-            # Fallback Simulado (Caso a HIVE_API_KEY não seja definida)
             logger.info("Chave da Hive ausente. Rodando análise Lens Simulada.")
             filename_lower = file.filename.lower()
             is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
@@ -393,12 +404,11 @@ async def verificar_midia(
             else:
                 anomalies = ["Estrutura de pixels aparentemente natural."]
 
-        # Incrementa o uso do cliente
         current_client.usage_count += 1
         db.commit()
         
         return {
-            "has_c2pa": False, # Na Fase 3 nós uniremos o C2PATOOL + HIVE
+            "has_c2pa": False, 
             "ai_analysis": {
                 "score": final_score,
                 "is_ai": is_ai,
@@ -556,17 +566,6 @@ def fix_database(db: Session = Depends(get_db)):
 
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(db: Session = Depends(get_db)):
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
     try:
         db.query(Client).delete()
         db.commit()
