@@ -326,22 +326,23 @@ async def verificar_midia(
         anomalies = []
 
         if hive_api_key:
-            logger.info("A iniciar contacto com a HIVE AI...")
+            logger.info("A iniciar contacto com a HIVE AI (V3 Playground)...")
             
-            # --- PROTEÇÃO CONTRA ERROS DE FORMATAÇÃO DE CHAVE (O CULPADO DO 401) ---
-            # Removemos espaços, quebras de linha e a palavra "token" se o utilizador a colou por engano
+            # --- A MAGIA DA CORREÇÃO DA V3 (BEARER) ---
             chave_limpa = hive_api_key.strip()
-            if chave_limpa.lower().startswith("token"):
+            # Removemos qualquer prefixo acidental inserido pelo utilizador
+            if chave_limpa.lower().startswith("bearer"):
+                chave_limpa = chave_limpa[6:].strip()
+            elif chave_limpa.lower().startswith("token"):
                 chave_limpa = chave_limpa[5:].strip()
                 
-            # O cabeçalho Authorization tem que ter o A maiúsculo e a estrutura exata "token XXXXX"
+            # As APIs V3 exigem o padrão moderno OAuth2 (Bearer)
             headers = {
-                "Authorization": f"token {chave_limpa}",
+                "Authorization": f"Bearer {chave_limpa}",
                 "Accept": "application/json"
             }
             
             with open(caminho_temp, "rb") as f:
-                # Utilizamos a V3 pois a sua chave é exclusiva para a V3
                 response = requests.post(
                     "https://api.thehive.ai/api/v3/task/sync", 
                     headers=headers, 
@@ -568,17 +569,6 @@ def fix_database(db: Session = Depends(get_db)):
 
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(db: Session = Depends(get_db)):
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
     try:
         db.query(Client).delete()
         db.commit()
