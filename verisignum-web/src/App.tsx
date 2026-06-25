@@ -211,7 +211,7 @@ export default function App() {
       // 1. Copia o link para a área de transferência silenciosamente (para colar num e-mail)
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
       
-      // 2. NOVA LINHA: Abre a página de checkout da Stripe numa nova aba automaticamente!
+      // 2. Abre a página de checkout da Stripe numa nova aba automaticamente!
       window.open(data.checkout_url, '_blank');
       
     } catch (error: any) {
@@ -342,7 +342,7 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setCopyStatus(prev => ({ ...prev, error: null }));
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null })); // <-- CORRIGIDO AQUI!
 
     try {
       // 1. Enviar o arquivo suspeito para a API (O Detector)
@@ -397,7 +397,7 @@ export default function App() {
       }
     } catch (err: any) {
       console.error("Erro no Lens:", err);
-      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha na verificação: ${err.message}` })); // <-- CORRIGIDO AQUI!
     } finally {
       setIsScanning(false);
     }
@@ -478,7 +478,7 @@ export default function App() {
         <div class="box">
           <h3>2. Parecer Técnico da Auditoria (Anomalias)</h3>
           <ul class="anomalies ${scanResult.score > 80 ? 'safe' : ''}">
-            ${scanResult.anomalies.map(a => `<li>${a}</li>`).join('')}
+            ${scanResult.anomalies.map((a: string) => `<li>${a}</li>`).join('')}
           </ul>
         </div>
 
