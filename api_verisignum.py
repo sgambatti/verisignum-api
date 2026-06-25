@@ -7,6 +7,7 @@ import requests
 import c2pa
 import stripe
 import resend
+import shutil
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
@@ -32,7 +33,7 @@ app = FastAPI(title="Verisignum API Master", version="2.0.0")
 # Configuração do CORS (Permite que o Front-end na Vercel fale com o Back-end)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # Em produção, substitua "*" pelo seu domínio Vercel
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -63,7 +64,7 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 elif not DATABASE_URL:
-     DATABASE_URL = "sqlite:///./verisignum.db" # Fallback para desenvolvimento local
+     DATABASE_URL = "sqlite:///./verisignum.db" # Fallback
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -81,7 +82,6 @@ class Client(Base):
     is_active = Column(Boolean, default=False)
     stripe_customer_id = Column(String, nullable=True)
 
-# Cria as tabelas se não existirem (não atualiza colunas existentes)
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -92,7 +92,6 @@ def get_db():
         db.close()
 
 # --- 6. UTILITÁRIOS DE AUTENTICAÇÃO ---
-
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -121,7 +120,7 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
         raise credentials_exception
     return client
 
-# --- 7. FUNÇÃO DE ENVIO DE E-MAIL (BOAS-VINDAS PROFISSIONAL B2B) ---
+# --- 7. FUNÇÃO DE ENVIO DE E-MAIL ---
 def send_welcome_email(client_email, client_name):
     if not resend.api_key:
         print("Aviso: Chave da API do Resend não configurada. E-mail não enviado.")
@@ -144,7 +143,6 @@ def send_welcome_email(client_email, client_name):
     </html>
     """
 
-    # CORREÇÃO: Agora usamos o seu domínio oficial verificado!
     params = {
         "from": "Verisignum AI <contato@verisignumdigital.com>",
         "to": [client_email],
@@ -158,44 +156,37 @@ def send_welcome_email(client_email, client_name):
     except Exception as e:
         print(f"Erro ao enviar e-mail via Resend: {e}")
 
-
 # ==========================================
-# ROTAS DE AUTENTICAÇÃO B2B (O "Portão")
+# ROTAS DE AUTENTICAÇÃO B2B 
 # ==========================================
 
 @app.post("/v1/auth/register", status_code=201)
 def register_client(name: str, email: str, password: str, db: Session = Depends(get_db)):
-    # 1. Verifica se o e-mail já existe
     if db.query(Client).filter(Client.email == email).first():
         raise HTTPException(status_code=400, detail="Este e-mail já está registado.")
     
-    # 2. Gera a API Key e encripta a senha
     new_api_key = "vsg_live_" + secrets.token_hex(16)
     hashed_password = pwd_context.hash(password)
     
-    # 3. Cria o cliente na base de dados
     new_client = Client(
         name=name, 
         email=email, 
         hashed_password=hashed_password, 
         api_key=new_api_key,
-        is_active=False # STATUS INATIVO: A aguardar pagamento na Stripe
+        is_active=False
     )
     db.add(new_client)
     db.commit()
     db.refresh(new_client)
     
-    # 4. Envia o e-mail de boas-vindas limpo
     send_welcome_email(email, name)
     
     return {"message": "Conta criada com sucesso!", "client_id": new_client.id}
 
 @app.post("/v1/auth/login")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # O OAuth2PasswordRequestForm usa 'username' para o e-mail
     client = db.query(Client).filter(Client.email == form_data.username).first()
     
-    # Verifica se o cliente existe e se a senha está correta
     if not client or not pwd_context.verify(form_data.password, client.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -203,17 +194,14 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Gera o "Crachá Digital" (Token JWT)
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": client.email}, expires_delta=access_token_expires
     )
-    # Retorna o token e o nome do cliente para o front-end
     return {"access_token": access_token, "token_type": "bearer", "client_name": client.name}
 
 @app.get("/v1/dashboard/me")
 def read_users_me(current_client: Client = Depends(get_current_client)):
-    # Rota protegida que retorna os dados do cliente logado
     return {
         "id": current_client.id,
         "name": current_client.name,
@@ -233,10 +221,9 @@ async def assinar_midia(
     file: UploadFile = File(...),
     author: str = Form("Autor Desconhecido"),
     organization: str = Form("Verisignum AI"),
-    current_client: Client = Depends(get_current_client), # CADEADO ATIVADO
-    db: Session = Depends(get_db)                         # Injetamos o banco de dados
+    current_client: Client = Depends(get_current_client), 
+    db: Session = Depends(get_db)                         
 ):
-    # --- PAYWALL: VERIFICAÇÃO DE FREE TRIAL ---
     if not current_client.is_active:
         if current_client.usage_count >= 5:
             raise HTTPException(
@@ -247,14 +234,20 @@ async def assinar_midia(
     if file.filename.lower().endswith('.pdf') or file.content_type == 'application/pdf':
         raise HTTPException(status_code=400, detail="Formato PDF não suportado pelo motor de assinatura C2PA atual.")
 
-    caminho_entrada = os.path.join(UPLOAD_DIR, file.filename)
-    caminho_saida = os.path.join(OUTPUT_DIR, f"verisignum_{file.filename}")
+    # A SOLUÇÃO ABSOLUTA: Isolamento total de diretório.
+    # Evita que a ferramenta Rust se perca com caminhos de sistema operacional (/app/temp_...)
+    nome_arquivo_original = file.filename.replace(" ", "_")
+    caminho_entrada = os.path.join(UPLOAD_DIR, nome_arquivo_original)
+    
+    nome_saida = f"verisignum_{nome_arquivo_original}"
+    caminho_saida_temp = os.path.join(UPLOAD_DIR, nome_saida)
+    caminho_saida_final = os.path.join(OUTPUT_DIR, nome_saida)
 
     try:
+        # Salva o arquivo que o utilizador enviou
         with open(caminho_entrada, "wb") as buffer:
-            buffer.write(await file.read())
+            shutil.copyfileobj(file.file, buffer)
 
-        # 1. GERAÇÃO DO CERTIFICADO BLINDADO (O PADRÃO OURO FINAL)
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography import x509
@@ -263,54 +256,57 @@ async def assinar_midia(
         import subprocess
         import json
 
-        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_cert_v10.pem"))
-        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "vsg_master_key_v10.pem"))
-
-        # Curva exata que o motor exige (P-256)
-        private_key = ec.generate_private_key(ec.SECP256R1())
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                # CORREÇÃO 1: Formato TraditionalOpenSSL (SEC1) que o parser em Rust prefere nativamente
-                format=serialization.PrivateFormat.TraditionalOpenSSL, 
-                encryption_algorithm=serialization.NoEncryption()
-            ))
-
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
-            x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
-        ])
+        # Nomes puros sem caminho para injetar no JSON
+        nome_cert = "vsg_master_cert_v12.pem"
+        nome_key = "vsg_master_key_v12.pem"
         
-        # CORREÇÃO 2: EXTENSÕES OBRIGATÓRIAS (Impede o "COSE error parsing certificate")
-        ski = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
-        aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key())
+        cert_path = os.path.join(UPLOAD_DIR, nome_cert)
+        key_path = os.path.join(UPLOAD_DIR, nome_key)
 
-        cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
-            private_key.public_key()
-        ).serial_number(x509.random_serial_number()).not_valid_before(
-            datetime.utcnow() - timedelta(days=1) # CORREÇÃO 3: ANTI CLOCK-SKEW
-        ).not_valid_after(
-            datetime.utcnow() + timedelta(days=3650)
-        ).add_extension(
-            x509.BasicConstraints(ca=False, path_length=None), critical=True
-        ).add_extension(
-            x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
-        ).add_extension(
-            ski, critical=False # O C2PA usa isto para gerar o 'kid' (Key ID) obrigatório do envelope!
-        ).add_extension(
-            aki, critical=False
-        ).sign(private_key, hashes.SHA256())
+        # Gera Chaves Perfeitas Matematicamente APENAS se elas não existirem
+        if not os.path.exists(cert_path) or not os.path.exists(key_path):
+            private_key = ec.generate_private_key(ec.SECP256R1())
+            with open(key_path, "wb") as f:
+                f.write(private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.PKCS8,
+                    encryption_algorithm=serialization.NoEncryption()
+                ))
 
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+            subject = issuer = x509.Name([
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
+                x509.NameAttribute(NameOID.COMMON_NAME, u"Verisignum C2PA Signer")
+            ])
+            
+            ski = x509.SubjectKeyIdentifier.from_public_key(private_key.public_key())
+            aki = x509.AuthorityKeyIdentifier.from_issuer_public_key(private_key.public_key())
 
-        # 2. MANIFESTO PARA O C2PATOOL NATIVO
+            cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
+                private_key.public_key()
+            ).serial_number(x509.random_serial_number()).not_valid_before(
+                datetime.utcnow() - timedelta(days=2) # ANTI CLOCK-SKEW INFALÍVEL
+            ).not_valid_after(
+                datetime.utcnow() + timedelta(days=3650)
+            ).add_extension(
+                x509.BasicConstraints(ca=False, path_length=None), critical=True
+            ).add_extension(
+                x509.KeyUsage(digital_signature=True, content_commitment=False, key_encipherment=False, data_encipherment=False, key_agreement=False, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True
+            ).add_extension(
+                ski, critical=False
+            ).add_extension(
+                aki, critical=False
+            ).sign(private_key, hashes.SHA256())
+
+            with open(cert_path, "wb") as f:
+                f.write(cert.public_bytes(serialization.Encoding.PEM))
+
+        # O SEGREDO: O JSON usa APENAS o nome dos arquivos (Caminhos Relativos).
+        # A ferramenta c2patool vai ler na própria pasta sem bugs de leitura!
         manifesto_dict = {
-            "claim_generator": "Verisignum_Shield/10.0",
+            "claim_generator": "Verisignum_Shield/12.0",
             "alg": "es256",
-            "private_key": key_path,
-            "sign_cert": cert_path,
-            "ta_url": "http://timestamp.digicert.com", # CORREÇÃO 4: Time Authority (Garante validade global temporal)
+            "private_key": nome_key, 
+            "sign_cert": nome_cert,  
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -324,48 +320,53 @@ async def assinar_midia(
             ]
         }
         
-        manifest_file = caminho_entrada + ".json"
-        with open(manifest_file, "w") as mf:
+        nome_manifesto = f"manifest_{nome_arquivo_original}.json"
+        caminho_manifesto = os.path.join(UPLOAD_DIR, nome_manifesto)
+        
+        with open(caminho_manifesto, "w") as mf:
             json.dump(manifesto_dict, mf)
         
-        # 3. Comunicação Direta com o Terminal do Linux
+        # 3. O Comando Perfeito
         cmd = [
-            "c2patool", caminho_entrada, 
-            "-m", manifest_file, 
-            "-o", caminho_saida, 
+            "c2patool", nome_arquivo_original, 
+            "-m", nome_manifesto, 
+            "-o", nome_saida, 
             "--force"
         ]
         
-        logger.info("Acionando o c2patool CLI com certificado X.509 completo e SKI...")
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        # A EXECUÇÃO ISOLADA: Ordenamos que o terminal se abra DENTRO de temp_uploads (cwd=UPLOAD_DIR)
+        # O c2patool vai executar tudo como se estivesse numa bolha isolada e segura.
+        logger.info("Executando c2patool em CWD Isolado (Paths Relativos)...")
+        result = subprocess.run(cmd, cwd=UPLOAD_DIR, capture_output=True, text=True)
         
-        # Limpeza
-        if os.path.exists(manifest_file):
-            os.remove(manifest_file)
+        if os.path.exists(caminho_manifesto):
+            os.remove(caminho_manifesto)
             
         if result.returncode != 0:
             raise Exception(f"Erro Fatal no motor binário: {result.stderr}")
 
-        # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
+        # Se teve sucesso, movemos a foto carimbada para a pasta final e retornamos!
+        shutil.move(caminho_saida_temp, caminho_saida_final)
+
         current_client.usage_count += 1
         db.commit()
 
-        return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{file.filename}")
+        return FileResponse(path=caminho_saida_final, media_type=file.content_type, filename=nome_saida)
 
     except Exception as e:
         logger.error(f"Erro C2PA: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro no motor de assinatura: {str(e)}")
     finally:
+        # Segurança: destrói a imagem original submetida
         if os.path.exists(caminho_entrada):
             os.remove(caminho_entrada)
 
 @app.post("/v1/lens/verify")
 async def verificar_midia(
     file: UploadFile = File(...),
-    current_client: Client = Depends(get_current_client), # CADEADO ATIVADO
+    current_client: Client = Depends(get_current_client),
     db: Session = Depends(get_db)
 ):
-    # --- PAYWALL: VERIFICAÇÃO DE FREE TRIAL ---
     if not current_client.is_active:
         if current_client.usage_count >= 5:
             raise HTTPException(
@@ -373,11 +374,9 @@ async def verificar_midia(
                 detail="Free Trial esgotado (5/5 usos). Por favor, ative a sua assinatura na aba Admin para continuar."
             )
     
-    # Incrementa o uso
     current_client.usage_count += 1
     db.commit()
     
-    # Simulação Forense MVP
     filename_lower = file.filename.lower()
     is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
     score = 15 if is_ai else 85
@@ -447,8 +446,8 @@ async def create_checkout_session(request: Request, db: Session = Depends(get_db
                 'quantity': 1,
             }],
             mode='subscription',
-            success_url='https://verisignumdigital.com/?payment=success', # URL do seu domínio
-            cancel_url='https://verisignumdigital.com/?payment=cancelled', # URL do seu domínio
+            success_url='https://verisignumdigital.com/?payment=success', 
+            cancel_url='https://verisignumdigital.com/?payment=cancelled', 
             metadata={
                 'tenant_id': str(tenant_id),
                 'client_name': cliente.name
@@ -512,7 +511,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/v1/admin/clients")
 def create_admin_client(name: str, db: Session = Depends(get_db)):
-    # Rota simplificada para criar clientes via painel Admin (sem senha)
     import uuid
     new_key = "vsg_live_" + uuid.uuid4().hex
     new_client = Client(name=name, api_key=new_key, is_active=False)
@@ -523,7 +521,6 @@ def create_admin_client(name: str, db: Session = Depends(get_db)):
 
 @app.get("/v1/system/fix-db")
 def fix_database(db: Session = Depends(get_db)):
-    # Rota de emergência para garantir que todas as colunas existem no banco
     try:
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
@@ -536,7 +533,6 @@ def fix_database(db: Session = Depends(get_db)):
 
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
     try:
         db.query(Client).delete()
         db.commit()
