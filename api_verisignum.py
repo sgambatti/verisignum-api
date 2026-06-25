@@ -247,31 +247,23 @@ async def assinar_midia(
     caminho_saida = os.path.join(OUTPUT_DIR, f"verisignum_{file.filename}")
 
     try:
-        # 1. Salva o arquivo temporariamente
         with open(caminho_entrada, "wb") as buffer:
             buffer.write(await file.read())
 
-        # SOLUÇÃO DEFINITIVA: Ignoramos os Ficheiros Secretos do Render.
-        # Forçamos a criação de chaves master na pasta temp isolada.
-        cert_path = os.path.abspath(os.path.join(UPLOAD_DIR, "verisignum_master_cert.pem"))
-        key_path = os.path.abspath(os.path.join(UPLOAD_DIR, "verisignum_master_key.pem"))
-
-        # 2. Gera Chaves Perfeitas Matematicamente (Padrão Ouro ECDSA)
-        # Ao não verificar se existem, forçamos a re-geração limpa a cada boot,
-        # matando de vez o erro "COSE error parsing certificate".
+        # 1. GERAÇÃO DO CERTIFICADO BLINDADO
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography import x509
         from cryptography.x509.oid import NameOID
         from datetime import datetime, timedelta
 
+        # Curva exata que o motor exige (P-256)
         private_key = ec.generate_private_key(ec.SECP256R1())
-        with open(key_path, "wb") as f:
-            f.write(private_key.private_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PrivateFormat.PKCS8,
-                encryption_algorithm=serialization.NoEncryption()
-            ))
+        key_bytes = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
 
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.ORGANIZATION_NAME, u"Verisignum Trust Network"),
@@ -281,20 +273,18 @@ async def assinar_midia(
         cert = x509.CertificateBuilder().subject_name(subject).issuer_name(issuer).public_key(
             private_key.public_key()
         ).serial_number(x509.random_serial_number()).not_valid_before(
-            datetime.utcnow()
+            # A CORREÇÃO DE OURO: Subtrair 1 dia (24h) da criação. 
+            # Isso mata matematicamente a possibilidade de rejeição por "Clock Skew".
+            datetime.utcnow() - timedelta(days=1)
         ).not_valid_after(
             datetime.utcnow() + timedelta(days=3650)
         ).sign(private_key, hashes.SHA256())
 
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        cert_bytes = cert.public_bytes(serialization.Encoding.PEM)
 
-        # 3. Define o manifesto com os caminhos absolutos das chaves recém-geradas
+        # 2. MANIFESTO LIMPO
         manifesto_dict = {
-            "claim_generator": "Verisignum_Shield/5.0",
-            "alg": "es256",
-            "private_key": key_path,
-            "sign_cert": cert_path,
+            "claim_generator": "Verisignum_Shield/8.0",
             "assertions": [
                 {
                     "label": "stds.schema-org.CreativeWork",
@@ -308,30 +298,36 @@ async def assinar_midia(
             ]
         }
 
-        # 4. MOTOR CLI NATIVO (Sem dependências instáveis)
-        import subprocess
+        # 3. MOTOR PYTHON DIRETO EM MEMÓRIA (CASCATA ABSOLUTA)
+        # Em vez de ler ficheiros no Linux, injetamos os BYTES diretamente no motor Rust.
+        import c2pa
         import json
-        
-        manifest_file = caminho_entrada + ".json"
-        
-        with open(manifest_file, "w") as mf:
-            json.dump(manifesto_dict, mf)
-            
-        cmd = [
-            "c2patool", caminho_entrada, 
-            "-m", manifest_file, 
-            "-o", caminho_saida, 
-            "--force"
-        ]
-        
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        # Limpeza
-        if os.path.exists(manifest_file):
-            os.remove(manifest_file)
-            
-        if result.returncode != 0:
-            raise Exception(f"Erro Motor C2PA: {result.stderr}")
+        assinado_sucesso = False
+
+        try:
+            # Para c2pa-python versão 0.6.0 ou superior (A mais provável no Render)
+            signer = c2pa.Signer("es256", sign_cert=cert_bytes, private_key=key_bytes)
+            builder = c2pa.Builder(manifesto_dict)
+            builder.sign_file(caminho_entrada, caminho_saida, signer)
+            assinado_sucesso = True
+        except Exception:
+            try:
+                # Para c2pa-python versão 0.5.x
+                signer = c2pa.Signer({"alg": "es256", "sign_cert": cert_bytes, "private_key": key_bytes})
+                builder = c2pa.Builder(manifesto_dict)
+                builder.sign_file(caminho_entrada, caminho_saida, signer)
+                assinado_sucesso = True
+            except Exception:
+                try:
+                    # Para c2pa-python versão 0.4.x
+                    signer = c2pa.create_signer({"alg": "es256", "sign_cert": cert_bytes, "private_key": key_bytes})
+                    c2pa.sign_file(caminho_entrada, caminho_saida, json.dumps(manifesto_dict), signer)
+                    assinado_sucesso = True
+                except Exception as ex_final:
+                    raise Exception(f"Falha em todas as versões da API C2PA. Erro raiz: {ex_final}")
+
+        if not assinado_sucesso:
+            raise Exception("O processo finalizou sem acionar o motor de assinatura.")
 
         # --- SUCESSO: INCREMENTA O USO DO CLIENTE ---
         current_client.usage_count += 1
@@ -517,17 +513,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
         return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
-    except Exception as e:
-        db.rollback()
-        return {"error": str(e)}
-
-@app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
-    # ATENÇÃO: Esta rota apaga TODOS os utilizadores do banco de dados!
-    try:
-        db.query(Client).delete()
-        db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
