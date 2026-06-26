@@ -326,40 +326,29 @@ async def verificar_midia(
         anomalies = []
 
         if hive_api_key:
-            # --- ROTEADOR INTELIGENTE DE MÍDIA (O "Canivete Suíço") ---
-            mime_type = file.content_type or ""
-            mime_lower = mime_type.lower()
+            logger.info("A iniciar contacto com a HIVE AI (Endpoint Universal V3)...")
             
-            hive_class_name = "ai_generated_image" # Padrão
-            
-            if "audio" in mime_lower:
-                hive_class_name = "ai_generated_audio"
-                logger.info(f"Roteador Inteligente: Detetado Áudio. Roteando para: {hive_class_name}")
-            elif "video" in mime_lower:
-                hive_class_name = "deepfake_video"
-                logger.info(f"Roteador Inteligente: Detetado Vídeo. Roteando para: {hive_class_name}")
-            else:
-                logger.info(f"Roteador Inteligente: Detetada Imagem. Roteando para: {hive_class_name}")
-
             chave_limpa = hive_api_key.strip()
             if chave_limpa.lower().startswith("bearer"):
                 chave_limpa = chave_limpa[6:].strip()
             elif chave_limpa.lower().startswith("token"):
                 chave_limpa = chave_limpa[5:].strip()
                 
+            # O manual exige Bearer para as chaves do Playground V3
             headers = {
                 "Authorization": f"Bearer {chave_limpa}",
                 "Accept": "application/json"
             }
             
-            # --- A CORREÇÃO FINAL: PARAMETRO 'CLASSES' ---
-            # A Hive utiliza 'classes' para direcionar a tarefa na maioria das suas arquiteturas síncronas.
+            # O endpoint mágico unificado fornecido na documentação da Hive!
+            hive_endpoint = "https://api.thehive.ai/api/v3/hive/ai-generated-and-deepfake-content-detection"
+            
             with open(caminho_temp, "rb") as f:
+                # Utilizamos form-data conforme a documentação (para ficheiros grandes)
                 response = requests.post(
-                    "https://api.thehive.ai/api/v3/task/sync", 
+                    hive_endpoint, 
                     headers=headers, 
-                    files={"media": f},
-                    data={"classes": hive_class_name} # Substituímos 'project' por 'classes'
+                    files={"media": f}
                 )
                 
             if response.status_code == 200:
@@ -368,16 +357,32 @@ async def verificar_midia(
                 
                 try:
                     ai_score = 0.0
+                    is_ai = False
                     
-                    status_list = res_data.get("status", [])
-                    if status_list:
-                        outputs = status_list[0].get("response", {}).get("output", [])
-                        if outputs:
-                            classes = outputs[0].get("classes", [])
+                    # Conforme a doc, a estrutura tem "output" na raiz, e "classes" com "value"
+                    outputs = res_data.get("output", [])
+                    geradores_detectados = []
+                    
+                    if outputs:
+                        # Em vídeos existem vários frames. Varremos todos para achar o pico de manipulação.
+                        for frame in outputs:
+                            classes = frame.get("classes", [])
                             for c in classes:
                                 nome_classe = c.get("class", "").lower()
-                                if "ai_generated" in nome_classe or "deepfake" in nome_classe or "synthetic" in nome_classe or "cloned" in nome_classe:
-                                    ai_score = max(ai_score, c.get("score", 0.0))
+                                valor = c.get("value", 0.0) # A doc mostra 'value', não 'score'
+                                
+                                # Verificamos os 3 pilares de falsificação indicados no manual
+                                if nome_classe in ["ai_generated", "deepfake", "ai_generated_audio"]:
+                                    ai_score = max(ai_score, valor)
+                                    
+                                # Rastreamento da engine geradora (ex: Midjourney, Stable Diffusion)
+                                if valor > 0.4 and nome_classe not in [
+                                    "not_ai_generated", "none", "ai_generated", 
+                                    "deepfake", "ai_generated_audio", "not_ai_generated_audio", 
+                                    "inconclusive", "other_image_generators"
+                                ]:
+                                    if nome_classe not in geradores_detectados:
+                                        geradores_detectados.append(nome_classe)
                     
                     if ai_score > 0:
                         final_score = int((1.0 - ai_score) * 100)
@@ -388,14 +393,11 @@ async def verificar_midia(
 
                     if is_ai:
                         anomalies.append(f"ALERTA HIVE AI: {ai_score*100:.1f}% de probabilidade de síntese artificial.")
-                        if "audio" in mime_lower:
-                            anomalies.append("Anomalias espectrais típicas de Voice Cloning (Clonagem de Voz) detetadas.")
-                        elif "video" in mime_lower:
-                            anomalies.append("Inconsistências de frames e artefatos de Deepfake facial identificados.")
-                        else:
-                            anomalies.append("Ruído de difusão sintética detetado nos píxeis da imagem.")
+                        if geradores_detectados:
+                            anomalies.append(f"Assinatura do motor detetada: {', '.join(geradores_detectados).title()}.")
+                        anomalies.append("Artefatos sintéticos ou ruído de difusão detetados nos píxeis/áudio.")
                     else:
-                        anomalies.append(f"HIVE AI: Nenhuma anomalia gerativa detetada no arquivo.")
+                        anomalies.append("HIVE AI: Nenhuma anomalia gerativa detetada no arquivo.")
                         anomalies.append("A matriz de dados é consistente com uma gravação natural.")
                         
                 except Exception as parse_err:
@@ -405,15 +407,15 @@ async def verificar_midia(
                 erro_txt = response.text
                 logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
                 
-                anomalies.append(f"A API da Hive AI recusou o arquivo (Erro {response.status_code}).")
+                anomalies.append(f"A API da Hive AI recusou o arquivo (Erro HTTP {response.status_code}).")
                 
                 try:
                     erro_json = response.json()
                     detalhe = erro_json.get('message', str(erro_json))
                 except:
                     detalhe = erro_txt
-                    
-                anomalies.append(f"Aviso do Servidor: {detalhe[:200]}")
+                
+                anomalies.append(f"Motivo exato retornado pela Hive AI: {detalhe[:300]}")
                 anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
             logger.info("Chave da Hive ausente. Rodando análise Lens Simulada.")
