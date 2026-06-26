@@ -108,12 +108,14 @@ export default function App() {
   const [isShielding, setIsShielding] = useState<boolean>(false);
   const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
+  const [isDraggingShield, setIsDraggingShield] = useState<boolean>(false); // NOVO: Estado de Drag
 
   // --- Estados do Lens ---
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [isDraggingLens, setIsDraggingLens] = useState<boolean>(false); // NOVO: Estado de Drag
   
   // --- Estados do Copilot ---
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -489,7 +491,7 @@ export default function App() {
           ]
         });
       } else {
-        // A CORREÇÃO DE JAVASCRIPT AQUI: Usando o Nullish Coalescing (??) para que o 0 seja lido corretamente
+        // Usando o Nullish Coalescing (??) para que o 0 seja lido corretamente
         setScanResult({
           score: aiData?.score ?? 65,
           isAiGenerated: aiData?.is_ai ?? false,
@@ -515,7 +517,6 @@ export default function App() {
         return;
     }
 
-    // Usando formatação segura para garantir que o número exato de score é renderizado (até mesmo o 0%)
     const scoreToDisplay = scanResult.score !== undefined && scanResult.score !== null ? scanResult.score : 65;
 
     const htmlContent = `
@@ -905,8 +906,19 @@ export default function App() {
                 </div>
 
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
-                  <div className="border-2 border-dashed border-[#30363d] rounded-xl p-8 flex flex-col items-center justify-center gap-3 hover:border-indigo-500 cursor-pointer bg-[#0d1117]">
-                    <FileCheck size={40} className="text-indigo-500" />
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingShield(true); }}
+                    onDragLeave={() => setIsDraggingShield(false)}
+                    onDrop={(e) => { 
+                      e.preventDefault(); 
+                      setIsDraggingShield(false); 
+                      if(e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        setShieldFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all bg-[#0d1117] ${isDraggingShield ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                  >
+                    <FileCheck size={40} className={isDraggingShield ? "text-indigo-400" : "text-indigo-500"} />
                     <input 
                       type="file" 
                       onChange={(e) => setShieldFile(e.target.files ? e.target.files[0] : null)}
@@ -914,7 +926,7 @@ export default function App() {
                       id="shield-file-input"
                     />
                     <label htmlFor="shield-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {shieldFile ? `Selecionado: ${shieldFile.name}` : 'Selecionar Mídia'}
+                      {shieldFile ? `Selecionado: ${shieldFile.name}` : 'Arraste o arquivo ou Clique aqui'}
                     </label>
                   </div>
                   
@@ -923,7 +935,7 @@ export default function App() {
                     <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white" />
                   </div>
 
-                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
+                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
                     {isShielding ? <Loader2 className="animate-spin" /> : 'Assinar Mídia'}
                   </button>
                   {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{shieldStep}</p>}
@@ -960,14 +972,25 @@ export default function App() {
                   </h3>
                 </div>
                 <form onSubmit={handleLensScan} className="space-y-4 flex-1">
-                  <div className="border-2 border-dashed border-[#30363d] rounded-xl p-8 flex flex-col items-center justify-center gap-3 bg-[#0d1117] h-full">
-                    <Activity size={40} className="text-indigo-400 animate-pulse" />
+                  <div 
+                    onDragOver={(e) => { e.preventDefault(); setIsDraggingLens(true); }}
+                    onDragLeave={() => setIsDraggingLens(false)}
+                    onDrop={(e) => { 
+                      e.preventDefault(); 
+                      setIsDraggingLens(false); 
+                      if(e.dataTransfer.files && e.dataTransfer.files[0]) {
+                        setLensFile(e.dataTransfer.files[0]);
+                      }
+                    }}
+                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 h-full cursor-pointer transition-all bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                  >
+                    <Activity size={40} className={isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"} />
                     <input type="file" onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} className="hidden" id="lens-file-input" />
-                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer">
-                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Selecionar Ficheiro'}
+                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
+                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste o arquivo ou Clique aqui'}
                     </label>
                   </div>
-                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2">
+                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
                     {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
                   </button>
                   {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
