@@ -326,27 +326,41 @@ async def verificar_midia(
         anomalies = []
 
         if hive_api_key:
-            logger.info("A iniciar contacto com a HIVE AI (V3 Playground)...")
+            # --- ROTEADOR INTELIGENTE DE MÍDIA (O "Canivete Suíço") ---
+            # Identifica qual é o tipo de arquivo para chamar o modelo certo na Hive V3
+            mime_type = file.content_type or ""
+            mime_lower = mime_type.lower()
             
-            # --- A MAGIA DA CORREÇÃO DA V3 (BEARER) ---
+            hive_project_name = "ai_generated_image" # Padrão
+            
+            if "audio" in mime_lower:
+                hive_project_name = "ai_generated_audio"
+                logger.info(f"Roteador Inteligente: Detetado Áudio. Roteando para modelo de Clonagem de Voz ({hive_project_name})")
+            elif "video" in mime_lower:
+                hive_project_name = "deepfake_video"
+                logger.info(f"Roteador Inteligente: Detetado Vídeo. Roteando para modelo de Deepfake ({hive_project_name})")
+            else:
+                logger.info(f"Roteador Inteligente: Detetada Imagem. Roteando para modelo de Síntese Visual ({hive_project_name})")
+
             chave_limpa = hive_api_key.strip()
-            # Removemos qualquer prefixo acidental inserido pelo utilizador
             if chave_limpa.lower().startswith("bearer"):
                 chave_limpa = chave_limpa[6:].strip()
             elif chave_limpa.lower().startswith("token"):
                 chave_limpa = chave_limpa[5:].strip()
                 
-            # As APIs V3 exigem o padrão moderno OAuth2 (Bearer)
             headers = {
                 "Authorization": f"Bearer {chave_limpa}",
                 "Accept": "application/json"
             }
             
+            # --- O FIM DO ERRO 400 ---
+            # Ao enviar o campo "project" no formulário multipart, dizemos à Hive exatamente qual modelo usar!
             with open(caminho_temp, "rb") as f:
                 response = requests.post(
                     "https://api.thehive.ai/api/v3/task/sync", 
                     headers=headers, 
-                    files={"media": f}
+                    files={"media": f},
+                    data={"project": hive_project_name} # Aqui está a magia!
                 )
                 
             if response.status_code == 200:
@@ -363,7 +377,7 @@ async def verificar_midia(
                             classes = outputs[0].get("classes", [])
                             for c in classes:
                                 nome_classe = c.get("class", "").lower()
-                                if "ai_generated" in nome_classe or "deepfake" in nome_classe or "synthetic" in nome_classe:
+                                if "ai_generated" in nome_classe or "deepfake" in nome_classe or "synthetic" in nome_classe or "cloned" in nome_classe:
                                     ai_score = max(ai_score, c.get("score", 0.0))
                     
                     if ai_score > 0:
@@ -374,20 +388,25 @@ async def verificar_midia(
                         is_ai = False
 
                     if is_ai:
-                        anomalies.append(f"ALERTA HIVE AI: {ai_score*100:.1f}% de probabilidade de geração por Inteligência Artificial.")
-                        anomalies.append("Ruído de difusão sintética detetado pela rede neural externa.")
+                        anomalies.append(f"ALERTA HIVE AI ({hive_project_name.upper()}): {ai_score*100:.1f}% de probabilidade de síntese artificial.")
+                        if "audio" in mime_lower:
+                            anomalies.append("Anomalias espectrais típicas de Voice Cloning (Clonagem de Voz) detetadas.")
+                        elif "video" in mime_lower:
+                            anomalies.append("Inconsistências de frames e artefatos de Deepfake facial identificados.")
+                        else:
+                            anomalies.append("Ruído de difusão sintética detetado nos píxeis da imagem.")
                     else:
-                        anomalies.append("HIVE AI: Nenhuma assinatura de IA generativa detetada no espectro visual.")
-                        anomalies.append("Matriz de píxeis consistente com captura natural.")
+                        anomalies.append(f"HIVE AI: Nenhuma anomalia gerativa ({hive_project_name}) detetada no arquivo.")
+                        anomalies.append("A matriz de dados é consistente com uma gravação natural.")
                         
                 except Exception as parse_err:
-                    logger.error(f"Erro ao parsear dados da Hive: {parse_err}")
-                    anomalies.append("Erro na descodificação do laudo heurístico da Hive AI.")
+                    logger.error(f"Erro ao analisar dados da Hive: {parse_err}")
+                    anomalies.append("Erro na formatação estrutural do laudo heurístico da Hive AI.")
             else:
                 erro_txt = response.text
                 logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
                 
-                anomalies.append(f"A API da Hive AI recusou a imagem (Erro {response.status_code}).")
+                anomalies.append(f"A API da Hive AI recusou o arquivo (Erro {response.status_code}).")
                 
                 try:
                     erro_json = response.json()
@@ -395,17 +414,17 @@ async def verificar_midia(
                 except:
                     detalhe = erro_txt
                     
-                anomalies.append(f"Erro recebido da Hive: {detalhe[:200]}")
-                anomalies.append("Heurística Local Ativada (Fallback): A matriz de píxeis aparenta ser uma captura de ecrã orgânica (85% Humano).")
+                anomalies.append(f"Aviso do Servidor: {detalhe[:200]}")
+                anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
             logger.info("Chave da Hive ausente. Rodando análise Lens Simulada.")
             filename_lower = file.filename.lower()
             is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
             final_score = 15 if is_ai else 85
             if is_ai:
-                anomalies = ["Inconsistências espaciais e ruído de difusão detetados (Possível Deepfake)."]
+                anomalies = ["Inconsistências espaciais e ruído de difusão detetados (Possível IA)."]
             else:
-                anomalies = ["Estrutura de pixels aparentemente natural."]
+                anomalies = ["Estrutura de dados aparentemente natural."]
 
         current_client.usage_count += 1
         db.commit()
