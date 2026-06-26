@@ -108,14 +108,14 @@ export default function App() {
   const [isShielding, setIsShielding] = useState<boolean>(false);
   const [shieldStep, setShieldStep] = useState<string>('');
   const [shieldResult, setShieldResult] = useState<ShieldResult | null>(null);
-  const [isDraggingShield, setIsDraggingShield] = useState<boolean>(false); // NOVO: Estado de Drag
+  const [isDraggingShield, setIsDraggingShield] = useState<boolean>(false); 
 
   // --- Estados do Lens ---
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [scanStep, setScanStep] = useState<string>('');
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
-  const [isDraggingLens, setIsDraggingLens] = useState<boolean>(false); // NOVO: Estado de Drag
+  const [isDraggingLens, setIsDraggingLens] = useState<boolean>(false); 
   
   // --- Estados do Copilot ---
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
@@ -210,7 +210,6 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  // --- Funções Utilitárias Tipificadas ---
   const safeCopyToClipboard = (text: string, type: 'hash' | 'key' | string): void => {
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
     const setSuccess = () => {
@@ -243,7 +242,6 @@ export default function App() {
     }
   };
 
-  // --- Funções do Admin ---
   const handleCreateClient = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newClientName.trim()) return;
@@ -321,7 +319,6 @@ export default function App() {
     }
   };
 
-  // --- Funções Core (Shield & Lens) ---
   const handleShieldSubmit = async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
     if (!shieldFile) return;
@@ -480,18 +477,18 @@ export default function App() {
       const aiData = verifyData.ai_analysis;
 
       if (verifyData.has_c2pa) {
+        // CORREÇÃO CRUCIAL: Agora o React usa os dados de autor que a sua API Python extraiu da criptografia!
         setScanResult({
           score: 100,
           isAiGenerated: false,
           metadataFound: true,
-          anomalies: [
+          anomalies: aiData?.anomalies || [
             'Selo C2PA Autêntico: Validado internamente pela Verisignum.',
             'Cadeia de custódia e integridade de píxeis intactas.',
             'O ficheiro não sofreu qualquer alteração desde a sua captura.'
           ]
         });
       } else {
-        // Usando o Nullish Coalescing (??) para que o 0 seja lido corretamente
         setScanResult({
           score: aiData?.score ?? 65,
           isAiGenerated: aiData?.is_ai ?? false,
@@ -633,7 +630,6 @@ export default function App() {
     }
   };
 
-  // --- Ecrã de Proteção (Login / Registo) ---
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
@@ -697,7 +693,6 @@ export default function App() {
     );
   }
 
-  // --- Painel de Controlo Principal ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -767,7 +762,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Conteúdo Principal */}
       <main className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 border-b border-[#30363d] px-8 flex items-center justify-between bg-[#161b22]">
           <div className="flex items-center gap-2">
