@@ -205,7 +205,7 @@ export default function App() {
     localStorage.removeItem('access_token');
     setIsAuthenticated(false);
     setClientData(null);
-    setActiveTab('dashboard'); // Volta para a tab inicial
+    setActiveTab('dashboard');
   };
 
   // --- Funções Utilitárias Tipificadas ---
@@ -338,7 +338,7 @@ export default function App() {
       formData.append("author", String(author || "Autor Desconhecido"));
       formData.append("organization", String(org || "Verisignum AI"));
 
-      const token = localStorage.getItem('access_token'); 
+      const token = localStorage.getItem('access_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
 
       setShieldStep('A enviar arquivo e a injetar certificado C2PA...');
@@ -483,15 +483,16 @@ export default function App() {
           isAiGenerated: false,
           metadataFound: true,
           anomalies: [
-            'Selo C2PA Autêntico: Validado pela Verisignum.',
+            'Selo C2PA Autêntico: Validado internamente pela Verisignum.',
             'Cadeia de custódia e integridade de píxeis intactas.',
             'O ficheiro não sofreu qualquer alteração desde a sua captura.'
           ]
         });
       } else {
+        // A CORREÇÃO DE JAVASCRIPT AQUI: Usando o Nullish Coalescing (??) para que o 0 seja lido corretamente
         setScanResult({
-          score: aiData?.score || 65,
-          isAiGenerated: aiData?.is_ai || false,
+          score: aiData?.score ?? 65,
+          isAiGenerated: aiData?.is_ai ?? false,
           metadataFound: false,
           anomalies: aiData?.anomalies || ['Nenhum selo de proveniência rastreável.']
         });
@@ -513,6 +514,9 @@ export default function App() {
         setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "O seu navegador bloqueou a abertura do PDF (Pop-up blocker). Permita pop-ups para este site." }));
         return;
     }
+
+    // Usando formatação segura para garantir que o número exato de score é renderizado (até mesmo o 0%)
+    const scoreToDisplay = scanResult.score !== undefined && scanResult.score !== null ? scanResult.score : 65;
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -571,14 +575,14 @@ export default function App() {
           <div class="row"><span class="label">Protocolo de Requisição:</span><span class="value">VSL-${Math.random().toString(36).substr(2, 9).toUpperCase()}</span></div>
         </div>
 
-        <div class="score-box ${scanResult.score > 80 ? 'safe' : (scanResult.score > 49 ? 'warning' : 'danger')}">
-          <h1>${scanResult.score}% Humano</h1>
+        <div class="score-box ${scoreToDisplay > 80 ? 'safe' : (scoreToDisplay > 49 ? 'warning' : 'danger')}">
+          <h1>${scoreToDisplay}% Humano</h1>
           <p>${scanResult.isAiGenerated ? 'ALERTA: Manipulação Sintética Detectada' : (scanResult.metadataFound ? 'VERIFICADO: C2PA Autêntico e Intacto' : 'ATENÇÃO: Arquivo natural, mas sem proveniência criptográfica')}</p>
         </div>
 
         <div class="box">
           <h3>2. Parecer Técnico da Auditoria (Anomalias)</h3>
-          <ul class="anomalies ${scanResult.score > 80 ? 'safe' : ''}">
+          <ul class="anomalies ${scoreToDisplay > 80 ? 'safe' : ''}">
             ${scanResult.anomalies.map((a: string) => `<li>${a}</li>`).join('')}
           </ul>
         </div>
@@ -740,7 +744,6 @@ export default function App() {
             </button>
           </div>
           
-          {/* NOVA SECÇÃO COM BOTÃO DE SAIR / LOGOFF */}
           <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
             <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400 flex-shrink-0">
