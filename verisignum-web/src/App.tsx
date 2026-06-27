@@ -163,7 +163,6 @@ export default function App() {
 
     try {
       if (authMode === 'register') {
-        // NOVA REGRA DE PRODUTO: Validação de Senha Forte
         const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
         if (!passwordRegex.test(authPassword)) {
           setAuthError('Segurança: A senha deve ter no mínimo 8 caracteres, contendo pelo menos uma letra, um número e um caractere especial (ex: @, #, $, %).');
@@ -185,14 +184,15 @@ export default function App() {
         const data = await res.json();
         const newClientId = data.client_id;
 
-        // NOVO FLUXO DE VENDAS: Redirecionamento Direto para Checkout Stripe!
+        // Tenta gerar o link de pagamento
         try {
           const billingRes = await fetch(RENDER_BILLING_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               tenant_id: newClientId.toString(),
-              price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
+              // Mude abaixo para o SEU price_id do Stripe!
+              price_id: 'price_1TmkPSHFEg79uXE9etg6z7sq' 
             })
           });
 
@@ -200,14 +200,13 @@ export default function App() {
              const billingData = await billingRes.json();
              // Redireciona a janela atual diretamente para a Stripe
              window.location.href = billingData.checkout_url; 
-             return; // Interrompe para aguardar redirecionamento
+             return; 
           } else {
-             throw new Error("Falha na geração do link.");
+             throw new Error("Falha na geração do link de pagamento.");
           }
         } catch (billingErr) {
-          // Fallback caso a Stripe falhe, o usuário não perde a conta
           setAuthMode('login');
-          setAuthError('Conta criada! Contudo, o redirecionamento de pagamento falhou. Por favor, faça login para ativar a sua licença.');
+          setAuthError('Conta criada! O redirecionamento falhou, mas faça login para testar a plataforma.');
         }
 
       } else {
@@ -277,7 +276,6 @@ export default function App() {
     }
   };
 
-  // Limpador White-Label: Traduz os termos da API (Hive/C2PA) para a marca Verisignum
   const cleanAnomalies = (anomaliesArray: string[]) => {
     return anomaliesArray.map(a => 
       a.replace(/HIVE AI/gi, 'Motor Verisignum')
@@ -343,7 +341,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
+          // Mude abaixo para o SEU price_id do Stripe!
+          price_id: 'price_1TmkPSHFEg79uXE9etg6z7sq' 
         })
       });
 
@@ -674,7 +673,6 @@ export default function App() {
     }
   };
 
-  // --- Ecrã de Proteção (Login / Registo) ---
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
@@ -738,7 +736,6 @@ export default function App() {
     );
   }
 
-  // --- Painel de Controlo Principal ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -901,7 +898,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
@@ -934,15 +930,14 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA SHIELD */}
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
                 <div>
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor de Assinaturas
+                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor C2PA
                   </h3>
-                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis na sua mídia.</p>
+                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis.</p>
                 </div>
 
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
@@ -1003,7 +998,6 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA LENS */}
           {activeTab === 'lens' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
