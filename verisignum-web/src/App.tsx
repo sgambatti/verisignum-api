@@ -88,7 +88,7 @@ const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboar
 // ==========================================
 // CONFIGURAÇÃO DO STRIPE (Coloque o seu Price ID aqui uma única vez!)
 // ==========================================
-const STRIPE_PRICE_ID = 'price_1TmkPSHFEg79uXE9etg6z7sq'; 
+const STRIPE_PRICE_ID = 'price_1TmkRzHFEg79uXE9ao1Lq5A5'; 
 
 export default function App() {
   // --- Estados de Autenticação (Login) ---
