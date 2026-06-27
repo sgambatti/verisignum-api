@@ -4,23 +4,24 @@ import json
 import secrets
 import logging
 import requests
-import c2pa
 import stripe
 import resend
 import shutil
+import subprocess
 from datetime import datetime, timedelta
 from typing import Optional
+
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
+from dotenv import load_dotenv
+
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from dotenv import load_dotenv
-from pydantic import BaseModel
-import subprocess
 
 load_dotenv()
 
@@ -28,7 +29,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Verisignum API Master", version="2.0.0")
+app = FastAPI(title="Verisignum API Master", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -58,7 +59,7 @@ resend.api_key = os.getenv("RESEND_API_KEY")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-# --- 5. CONFIGURAÇÃO DA BASE DE DADOS (POSTGRESQL) ---
+# --- 5. CONFIGURAÇÃO DA BASE DE DADOS (POSTGRESQL / SQLITE) ---
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -207,7 +208,7 @@ def read_users_me(current_client: Client = Depends(get_current_client)):
         "api_key": current_client.api_key,
         "usage_count": current_client.usage_count,
         "is_active": current_client.is_active,
-        "plan": "Enterprise" if current_client.is_active else "Trial"
+        "plan": "Ativo" if current_client.is_active else "Pendente"
     }
 
 # ==========================================
@@ -223,11 +224,10 @@ async def assinar_midia(
     db: Session = Depends(get_db)                         
 ):
     if not current_client.is_active:
-        if current_client.usage_count >= 5:
-            raise HTTPException(
-                status_code=402, 
-                detail="Free Trial esgotado (5/5 usos). Por favor, ative o plano Enterprise na aba Admin para continuar a usar a API."
-            )
+        raise HTTPException(
+            status_code=402, 
+            detail="Assinatura pendente. Por favor, ative a sua licença para continuar a usar a API."
+        )
 
     if file.filename.lower().endswith('.pdf') or file.content_type == 'application/pdf':
         raise HTTPException(status_code=400, detail="Formato PDF não suportado pelo motor de assinatura C2PA atual.")
@@ -298,7 +298,7 @@ async def assinar_midia(
             os.remove(caminho_entrada)
 
 # ==========================================
-# ROTAS DO VERISIGNUM LENS (HIVE AI REAL + C2PA)
+# ROTAS DO VERISIGNUM LENS (C2PA + HIVE AI)
 # ==========================================
 
 @app.post("/v1/lens/verify")
@@ -308,11 +308,10 @@ async def verificar_midia(
     db: Session = Depends(get_db)
 ):
     if not current_client.is_active:
-        if current_client.usage_count >= 5:
-            raise HTTPException(
-                status_code=402, 
-                detail="Free Trial esgotado (5/5 usos). Por favor, ative a sua assinatura na aba Admin para continuar."
-            )
+        raise HTTPException(
+            status_code=402, 
+            detail="Assinatura pendente. Por favor, ative a sua licença para continuar."
+        )
     
     caminho_temp = os.path.join(UPLOAD_DIR, f"lens_{file.filename}")
     try:
@@ -321,7 +320,6 @@ async def verificar_midia(
 
         # -----------------------------------------------------------------
         # PASSO 1: INSPEÇÃO CRIPTOGRÁFICA (O ELO COM O SHIELD)
-        # O custo é zero e a confiança é absoluta.
         # -----------------------------------------------------------------
         has_c2pa = False
         author_name = "Verisignum Trust Network"
@@ -331,14 +329,12 @@ async def verificar_midia(
             cmd_c2pa = ["c2patool", caminho_temp]
             result_c2pa = subprocess.run(cmd_c2pa, capture_output=True, text=True)
             
-            # Se o comando rodar sem erro, ele encontrou um manifesto!
             if result_c2pa.returncode == 0 and result_c2pa.stdout.strip():
                 try:
                     c2pa_data = json.loads(result_c2pa.stdout)
                     if "active_manifest" in c2pa_data or "manifests" in c2pa_data:
                         has_c2pa = True
                         
-                        # Extrai o nome do autor que o Shield colocou lá dentro
                         active_manifest = c2pa_data.get("active_manifest")
                         if active_manifest:
                             manifest_obj = c2pa_data.get("manifests", {}).get(active_manifest, {})
@@ -353,7 +349,6 @@ async def verificar_midia(
         except Exception as e:
             logger.error(f"Lens: Erro ao tentar ler C2PA: {str(e)}")
 
-        # Se tiver assinatura, o Lens valida imediatamente! Não envia à Hive.
         if has_c2pa:
             logger.info(f"Lens: Selo C2PA intacto encontrado! Autor: {author_name}. Economizando cota da Hive AI.")
             current_client.usage_count += 1
@@ -373,7 +368,7 @@ async def verificar_midia(
 
 
         # -----------------------------------------------------------------
-        # PASSO 2: HIVE AI (SE NÃO TIVER C2PA, USAMOS A INTELIGÊNCIA ARTIFICIAL)
+        # PASSO 2: HIVE AI (SE NÃO TIVER C2PA)
         # -----------------------------------------------------------------
         hive_api_key = os.getenv("HIVE_API_KEY")
         
@@ -455,15 +450,12 @@ async def verificar_midia(
             else:
                 erro_txt = response.text
                 logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
-                
                 anomalies.append(f"A API da Hive AI recusou o arquivo (Erro HTTP {response.status_code}).")
-                
                 try:
                     erro_json = response.json()
                     detalhe = erro_json.get('message', str(erro_json))
                 except:
                     detalhe = erro_txt
-                
                 anomalies.append(f"Motivo exato retornado pela Hive AI: {detalhe[:300]}")
                 anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
@@ -527,29 +519,34 @@ async def copilot_chat(req: ChatRequest):
         raise HTTPException(status_code=500, detail=f"Erro na comunicação com a IA: {str(e)}")
 
 # ==========================================
-# ROTAS DE FATURAÇÃO (STRIPE)
+# ROTAS DE FATURAÇÃO (STRIPE MULTI-PLANO)
 # ==========================================
 
 @app.post("/v1/billing/create-checkout-session")
 async def create_checkout_session(request: Request, db: Session = Depends(get_db)):
+    """
+    Recebe price_id_fixo e price_id_variavel para gerar a assinatura híbrida.
+    """
     try:
         data = await request.json()
         tenant_id = data.get('tenant_id')
-        price_id = data.get('price_id')
+        price_id_fixo = data.get('price_id_fixo')
+        price_id_variavel = data.get('price_id_variavel')
         
-        if not tenant_id or not price_id:
-            raise HTTPException(status_code=400, detail="tenant_id e price_id são obrigatórios")
+        if not tenant_id or not price_id_fixo:
+            raise HTTPException(status_code=400, detail="tenant_id e price_id_fixo são obrigatórios")
 
-        cliente = db.query(Client).filter(Client.id == tenant_id).first()
+        cliente = db.query(Client).filter(Client.id == int(tenant_id)).first()
         if not cliente:
             raise HTTPException(status_code=404, detail="Cliente não encontrado")
 
+        line_items = [{'price': price_id_fixo, 'quantity': 1}]
+        if price_id_variavel:
+            line_items.append({'price': price_id_variavel})
+
         checkout_session = stripe.checkout.Session.create(
             payment_method_types=['card'],
-            line_items=[{
-                'price': price_id,
-                'quantity': 1,
-            }],
+            line_items=line_items,
             mode='subscription',
             success_url='https://verisignumdigital.com/?payment=success', 
             cancel_url='https://verisignumdigital.com/?payment=cancelled', 
@@ -557,7 +554,7 @@ async def create_checkout_session(request: Request, db: Session = Depends(get_db
                 'tenant_id': str(tenant_id),
                 'client_name': cliente.name
             },
-             allow_promotion_codes=True,
+            allow_promotion_codes=True,
         )
         
         logger.info(f"Link de checkout gerado para: {cliente.name}")
@@ -585,6 +582,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
+    # 1. Quando o cliente ativa a subscrição
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         tenant_id = session.get('metadata', {}).get('tenant_id')
@@ -598,6 +596,7 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 db.commit()
                 logger.info(f"SUCESSO: Conta ativada para o tenant_id {tenant_id}.")
 
+    # 2. Quando a fatura mensal falha
     elif event['type'] == 'invoice.payment_failed':
         invoice = event['data']['object']
         stripe_customer_id = invoice.get('customer')
@@ -607,6 +606,10 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             cliente.is_active = False 
             db.commit()
             logger.warning(f"ALERTA: Pagamento falhou. Conta {cliente.name} bloqueada.")
+
+    # 3. Fatura mensal paga
+    elif event['type'] == 'invoice.paid':
+        logger.info(f"Fatura mensal paga com sucesso.")
 
     return JSONResponse(content={"success": True}, status_code=200)
 

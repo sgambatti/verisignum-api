@@ -92,22 +92,28 @@ const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboar
 // ==========================================
 const STRIPE_PLANS = [
   { 
-    id: 'price_COLE_O_ID_DO_CREATOR_AQUI', 
+    id: 'creator', 
     name: 'Creator', 
     price: '$29/mês', 
-    desc: 'Até 200 mídias' 
+    desc: 'Até 200 mídias',
+    price_id_fixo: 'price_1TmmpaHFEg79uXE9ZHlK48Va',
+    price_id_variavel: 'price_1TmmpaHFEg79uXE99gldVSIQ'
   },
   { 
-    id: 'price_COLE_O_ID_DO_PRO_AQUI', 
+    id: 'pro', 
     name: 'Professional', 
     price: '$149/mês', 
-    desc: 'Até 1.500 mídias' 
+    desc: 'Até 1.500 mídias',
+    price_id_fixo: 'price_1TmmlcHFEg79uXE9Lhj3a9OT',
+    price_id_variavel: 'price_1TmmnLHFEg79uXE96OvVD023'
   },
   { 
-    id: 'price_COLE_O_ID_DO_ENTERPRISE_AQUI', 
+    id: 'enterprise', 
     name: 'Enterprise', 
     price: '$499/mês', 
-    desc: 'API Ilimitada' 
+    desc: 'Até 10.000 mídias', // <-- Correção estratégica de negócios aplicada
+    price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK',
+    price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU'
   }
 ];
 
@@ -222,12 +228,15 @@ export default function App() {
 
         // Gera o link de pagamento usando o plano escolhido no Ecrã!
         try {
+          const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
+
           const billingRes = await fetch(RENDER_BILLING_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               tenant_id: newClientId.toString(),
-              price_id: selectedPlanId // <--- Usa o ID dinâmico escolhido pelo utilizador
+              price_id_fixo: selectedPlan.price_id_fixo,
+              price_id_variavel: selectedPlan.price_id_variavel
             })
           });
 
@@ -286,12 +295,15 @@ export default function App() {
     setAuthError(null);
     
     try {
+      const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
+
       const response = await fetch(RENDER_BILLING_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientData.id.toString(),
-          price_id: selectedPlanId // <--- Usa o plano selecionado no Paywall
+          price_id_fixo: selectedPlan.price_id_fixo,
+          price_id_variavel: selectedPlan.price_id_variavel
         })
       });
 
@@ -339,6 +351,7 @@ export default function App() {
     }
   };
 
+  // Limpador White-Label: Traduz os termos da API (Hive/C2PA) para a marca Verisignum
   const cleanAnomalies = (anomaliesArray: string[]) => {
     return anomaliesArray.map(a => 
       a.replace(/HIVE AI/gi, 'Motor Verisignum')
@@ -407,7 +420,8 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: enterprisePlan.id 
+          price_id_fixo: enterprisePlan.price_id_fixo,
+          price_id_variavel: enterprisePlan.price_id_variavel
         })
       });
 
@@ -774,7 +788,7 @@ export default function App() {
                   />
                 </div>
                 
-                {/* --- NOVO: SELEÇÃO DE PLANOS NO REGISTO --- */}
+                {/* --- SELEÇÃO DE PLANOS NO REGISTO --- */}
                 <div className="space-y-2 py-2">
                   <label className="text-xs font-semibold text-gray-400">Selecione o seu Plano de Acesso</label>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -840,7 +854,7 @@ export default function App() {
     );
   }
 
-  // --- NOVA BARREIRA DE SEGURANÇA (PAYWALL COM SELEÇÃO DE PLANO) ---
+  // --- BARREIRA DE SEGURANÇA (PAYWALL COM SELEÇÃO DE PLANO) ---
   if (isAuthenticated && clientData && !clientData.is_active) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto">
@@ -1063,6 +1077,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="flex justify-between items-center">
@@ -1095,6 +1110,7 @@ export default function App() {
             </div>
           )}
 
+          {/* ABA SHIELD */}
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
@@ -1133,157 +1149,4 @@ export default function App() {
                   
                   <div className="grid grid-cols-2 gap-4">
                     <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white" />
-                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white" />
-                  </div>
-
-                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isShielding ? <Loader2 className="animate-spin" /> : 'Assinar Mídia'}
-                  </button>
-                  {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{shieldStep}</p>}
-                </form>
-              </div>
-
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
-                  <h3 className="text-lg font-bold text-white mb-4">Certificado de Proveniência Verisignum</h3>
-                  {shieldResult ? (
-                    <div className="space-y-4">
-                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
-                        <CheckCircle2 className="text-emerald-400" size={24} />
-                        <div><p className="text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
-                      </div>
-                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto">{shieldResult.manifest}</pre>
-                    </div>
-                  ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                      <Lock size={48} className="mb-4 text-gray-700" />
-                      <p className="text-sm">Aguardar Execução</p>
-                    </div>
-                  )}
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'lens' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
-                 <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Eye className="text-indigo-500" /> VerisignumLens — Analisador
-                  </h3>
-                </div>
-                <form onSubmit={handleLensScan} className="space-y-4 flex-1">
-                  <div 
-                    onDragOver={(e) => { e.preventDefault(); setIsDraggingLens(true); }}
-                    onDragLeave={() => setIsDraggingLens(false)}
-                    onDrop={(e) => { 
-                      e.preventDefault(); 
-                      setIsDraggingLens(false); 
-                      if(e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        setLensFile(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 h-full cursor-pointer transition-all bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
-                  >
-                    <Activity size={40} className={isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"} />
-                    <input 
-                      type="file" 
-                      accept="image/*,video/*,audio/*,.avi"
-                      onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} 
-                      className="hidden" 
-                      id="lens-file-input" 
-                    />
-                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste o arquivo ou Clique aqui'}
-                    </label>
-                  </div>
-                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
-                  </button>
-                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
-                </form>
-              </div>
-
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl flex flex-col justify-between">
-                  <div>
-                    <h3 className="text-lg font-bold text-white mb-4">Relatório de Anomalias de IA</h3>
-                    {scanResult ? (
-                      <div className="space-y-6">
-                        <div className="flex justify-between items-center bg-[#0d1117] p-5 border border-[#30363d] rounded-xl">
-                          <div><p className="text-3xl font-extrabold text-white mt-1">{scanResult.score}% Humano</p></div>
-                          <div className={`p-3 rounded-xl ${scanResult.isAiGenerated ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                            {scanResult.isAiGenerated ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
-                          </div>
-                        </div>
-                        <div className="space-y-2">
-                          {scanResult.anomalies.map((anomaly: string, idx: number) => (
-                             <div key={idx} className="flex gap-2.5 items-start bg-[#0d1117] p-3 border border-[#30363d] rounded-lg">
-                                <p className="text-xs text-gray-300">{anomaly}</p>
-                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                        <Activity size={48} className="mb-4 text-gray-700" />
-                        <p className="text-sm">Pronto para Diagnóstico</p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* BOTÃO DE EXPORTAÇÃO PDF */}
-                  {scanResult && (
-                    <button 
-                      onClick={handleDownloadPDF}
-                      className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg p-3 text-sm flex items-center justify-center gap-2 border border-[#30363d] transition-all"
-                    >
-                      <FileText size={16} /> Exportar Laudo Forense (PDF)
-                    </button>
-                  )}
-              </div>
-            </div>
-          )}
-
-          {/* ABA API */}
-          {activeTab === 'api' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Key className="text-indigo-500" /> API Access Keys
-                </h3>
-                <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between font-mono text-xs text-indigo-400">
-                   {isKeyVisible ? clientData?.api_key || 'A carregar...' : '••••••••••••••••••••••••••••••••'}
-                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white hover:text-indigo-400 transition-colors">Revelar</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ABA COPILOT */}
-          {activeTab === 'copilot' && (
-            <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[500px]">
-              <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2">
-                 <Sparkles size={18} className="text-indigo-400" />
-                 <h3 className="font-bold text-white text-sm">Verisignum Copilot</h3>
-              </div>
-              <div className="flex-1 p-6 space-y-4 overflow-y-auto bg-[#0d1117]">
-                 {chatMessages.map((msg, index) => (
-                    <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`p-4 text-sm rounded-xl ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#161b22] text-gray-200 border border-[#30363d]'}`}>
-                        {msg.text}
-                      </div>
-                    </div>
-                 ))}
-                 {isChatLoading && <Loader2 size={16} className="animate-spin text-indigo-400" />}
-              </div>
-              <div className="p-4 border-t border-[#30363d] bg-[#161b22] flex gap-3">
-                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none" />
-                 <button onClick={sendMessageToGemini} className="bg-indigo-600 text-white p-3 rounded-lg"><Send size={18}/></button>
-              </div>
-            </div>
-          )}
-
-        </div>
-      </main>
-    </div>
-  );
-}
+                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e
