@@ -192,7 +192,7 @@ export default function App() {
             body: JSON.stringify({
               tenant_id: newClientId.toString(),
               // Mude abaixo para o SEU price_id do Stripe!
-              price_id: 'price_1TmkPSHFEg79uXE9etg6z7sq' 
+              price_id: 'price_1TmkTOHFEg79uXE9IvPzeL2h' 
             })
           });
 
@@ -342,7 +342,7 @@ export default function App() {
         body: JSON.stringify({
           tenant_id: clientId,
           // Mude abaixo para o SEU price_id do Stripe!
-          price_id: 'price_1TmkPSHFEg79uXE9etg6z7sq' 
+          price_id: 'price_1TmkTOHFEg79uXE9IvPzeL2h' 
         })
       });
 
