@@ -163,6 +163,14 @@ export default function App() {
 
     try {
       if (authMode === 'register') {
+        // NOVA REGRA DE PRODUTO: Validação de Senha Forte
+        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+        if (!passwordRegex.test(authPassword)) {
+          setAuthError('Segurança: A senha deve ter no mínimo 8 caracteres, contendo pelo menos uma letra, um número e um caractere especial (ex: @, #, $, %).');
+          setAuthLoading(false);
+          return;
+        }
+
         const url = new URL(RENDER_AUTH_REGISTER_URL);
         url.searchParams.append('name', authName);
         url.searchParams.append('email', authEmail);
@@ -173,8 +181,35 @@ export default function App() {
             const error = await res.json();
             throw new Error(error.detail || 'Erro ao criar conta.');
         }
-        setAuthMode('login');
-        setAuthError('Conta criada! Verifique o seu e-mail corporativo (Boas-vindas) e faça login.');
+        
+        const data = await res.json();
+        const newClientId = data.client_id;
+
+        // NOVO FLUXO DE VENDAS: Redirecionamento Direto para Checkout Stripe!
+        try {
+          const billingRes = await fetch(RENDER_BILLING_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              tenant_id: newClientId.toString(),
+              price_id: 'price_1Tj6hLHAl9dt4Pfq8NzMSJhp' 
+            })
+          });
+
+          if (billingRes.ok) {
+             const billingData = await billingRes.json();
+             // Redireciona a janela atual diretamente para a Stripe
+             window.location.href = billingData.checkout_url; 
+             return; // Interrompe para aguardar redirecionamento
+          } else {
+             throw new Error("Falha na geração do link.");
+          }
+        } catch (billingErr) {
+          // Fallback caso a Stripe falhe, o usuário não perde a conta
+          setAuthMode('login');
+          setAuthError('Conta criada! Contudo, o redirecionamento de pagamento falhou. Por favor, faça login para ativar a sua licença.');
+        }
+
       } else {
         const formData = new URLSearchParams();
         formData.append('username', authEmail);
@@ -240,6 +275,16 @@ export default function App() {
       setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Cópia automática indisponível." }));
       setTimeout(() => setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null })), 5000);
     }
+  };
+
+  // Limpador White-Label: Traduz os termos da API (Hive/C2PA) para a marca Verisignum
+  const cleanAnomalies = (anomaliesArray: string[]) => {
+    return anomaliesArray.map(a => 
+      a.replace(/HIVE AI/gi, 'Motor Verisignum')
+       .replace(/Hive Al/gi, 'Motor Verisignum')
+       .replace(/Hive/gi, 'Verisignum')
+       .replace(/C2PA/gi, 'Verisignum')
+    );
   };
 
   const handleCreateClient = async (e: React.FormEvent) => {
@@ -340,7 +385,7 @@ export default function App() {
       const token = localStorage.getItem('access_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      setShieldStep('A enviar arquivo e a injetar certificado C2PA...');
+      setShieldStep('A enviar arquivo e a injetar assinatura criptográfica...');
 
       const response = await fetch(RENDER_API_URL, {
         method: "POST",
@@ -384,7 +429,7 @@ export default function App() {
 
         setShieldResult({
           hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01',
-          manifest: JSON.stringify({ "c2pa:manifest": { "status": "Assinatura injetada com sucesso e ficheiro descarregado!" } }, null, 2)
+          manifest: JSON.stringify({ "verisignum:manifest": { "status": "Assinatura injetada com sucesso e ficheiro descarregado!" } }, null, 2)
         });
       }
 
@@ -442,7 +487,7 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setScanStep('A enviar arquivo para a API e Hive AI...');
+    setScanStep('A enviar arquivo para o servidor forense Verisignum...');
     setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     try {
@@ -452,7 +497,7 @@ export default function App() {
       const token = localStorage.getItem('access_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      setScanStep('A analisar metadados C2PA e extrair Laudo...');
+      setScanStep('A analisar metadados de proveniência e extrair Laudo...');
 
       const response = await fetch(RENDER_VERIFY_URL, {
         method: "POST",
@@ -477,23 +522,22 @@ export default function App() {
       const aiData = verifyData.ai_analysis;
 
       if (verifyData.has_c2pa) {
-        // CORREÇÃO CRUCIAL: Agora o React usa os dados de autor que a sua API Python extraiu da criptografia!
         setScanResult({
           score: 100,
           isAiGenerated: false,
           metadataFound: true,
-          anomalies: aiData?.anomalies || [
-            'Selo C2PA Autêntico: Validado internamente pela Verisignum.',
+          anomalies: cleanAnomalies(aiData?.anomalies || [
+            'Selo Verisignum Autêntico: Validado internamente pela plataforma.',
             'Cadeia de custódia e integridade de píxeis intactas.',
             'O ficheiro não sofreu qualquer alteração desde a sua captura.'
-          ]
+          ])
         });
       } else {
         setScanResult({
           score: aiData?.score ?? 65,
           isAiGenerated: aiData?.is_ai ?? false,
           metadataFound: false,
-          anomalies: aiData?.anomalies || ['Nenhum selo de proveniência rastreável.']
+          anomalies: cleanAnomalies(aiData?.anomalies || ['Nenhum selo de proveniência rastreável.'])
         });
       }
     } catch (err: any) {
@@ -575,7 +619,7 @@ export default function App() {
 
         <div class="score-box ${scoreToDisplay > 80 ? 'safe' : (scoreToDisplay > 49 ? 'warning' : 'danger')}">
           <h1>${scoreToDisplay}% Humano</h1>
-          <p>${scanResult.isAiGenerated ? 'ALERTA: Manipulação Sintética Detectada' : (scanResult.metadataFound ? 'VERIFICADO: C2PA Autêntico e Intacto' : 'ATENÇÃO: Arquivo natural, mas sem proveniência criptográfica')}</p>
+          <p>${scanResult.isAiGenerated ? 'ALERTA: Manipulação Sintética Detectada' : (scanResult.metadataFound ? 'VERIFICADO: Assinatura Autêntica e Intacta' : 'ATENÇÃO: Arquivo natural, mas sem proveniência criptográfica')}</p>
         </div>
 
         <div class="box">
@@ -587,7 +631,7 @@ export default function App() {
 
         <div class="footer">
           Laudo pericial gerado automaticamente pelo motor VerisignumLens v4.0.<br>
-          Em conformidade com a LGPD e o padrão global C2PA. A Verisignum não armazena o arquivo analisado (Zero-Storage Policy).
+          Em conformidade com a LGPD e os padrões globais de proveniência. A Verisignum não armazena o arquivo analisado (Zero-Storage Policy).
         </div>
       </body>
       </html>
@@ -630,6 +674,7 @@ export default function App() {
     }
   };
 
+  // --- Ecrã de Proteção (Login / Registo) ---
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
@@ -693,6 +738,7 @@ export default function App() {
     );
   }
 
+  // --- Painel de Controlo Principal ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -894,9 +940,9 @@ export default function App() {
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
                 <div>
                   <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor C2PA
+                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor de Assinaturas
                   </h3>
-                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis.</p>
+                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis na sua mídia.</p>
                 </div>
 
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
@@ -915,6 +961,7 @@ export default function App() {
                     <FileCheck size={40} className={isDraggingShield ? "text-indigo-400" : "text-indigo-500"} />
                     <input 
                       type="file" 
+                      accept="image/*,video/*,audio/*,.avi,.pdf"
                       onChange={(e) => setShieldFile(e.target.files ? e.target.files[0] : null)}
                       className="hidden" 
                       id="shield-file-input"
@@ -937,7 +984,7 @@ export default function App() {
               </div>
 
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
-                  <h3 className="text-lg font-bold text-white mb-4">Certificado Digital C2PA</h3>
+                  <h3 className="text-lg font-bold text-white mb-4">Certificado de Proveniência Verisignum</h3>
                   {shieldResult ? (
                     <div className="space-y-4">
                       <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
@@ -979,7 +1026,13 @@ export default function App() {
                     className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 h-full cursor-pointer transition-all bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
                   >
                     <Activity size={40} className={isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"} />
-                    <input type="file" onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} className="hidden" id="lens-file-input" />
+                    <input 
+                      type="file" 
+                      accept="image/*,video/*,audio/*,.avi"
+                      onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} 
+                      className="hidden" 
+                      id="lens-file-input" 
+                    />
                     <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
                       {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste o arquivo ou Clique aqui'}
                     </label>
