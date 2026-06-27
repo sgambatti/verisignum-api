@@ -90,24 +90,24 @@ const STRIPE_PLANS = [
     name: 'Creator', 
     price: '$29/mês', 
     desc: 'Até 200 mídias',
-    price_id_fixo: 'COLE_O_ID_FIXO_DO_CREATOR_AQUI',
-    price_id_variavel: 'COLE_O_ID_VARIAVEL_DO_CREATOR_AQUI'
+    price_id_fixo: 'price_1TmmpaHFEg79uXE9ZHlK48Va',
+    price_id_variavel: 'price_1TmmpaHFEg79uXE99gldVSIQ'
   },
   { 
     id: 'pro', 
     name: 'Professional', 
     price: '$149/mês', 
     desc: 'Até 1.500 mídias',
-    price_id_fixo: 'COLE_O_ID_FIXO_DO_PRO_AQUI',
-    price_id_variavel: 'COLE_O_ID_VARIAVEL_DO_PRO_AQUI'
+    price_id_fixo: 'price_1TmmlcHFEg79uXE9Lhj3a9OT',
+    price_id_variavel: 'price_1TmmnLHFEg79uXE96OvVD023'
   },
   { 
     id: 'enterprise', 
     name: 'Enterprise', 
     price: '$499/mês', 
-    desc: 'Até 10.000 mídias',
-    price_id_fixo: 'COLE_O_ID_FIXO_DO_ENTERPRISE_AQUI',
-    price_id_variavel: 'COLE_O_ID_VARIAVEL_DO_ENTERPRISE_AQUI'
+    desc: 'Até 10.000 mídias', // <-- Correção estratégica de negócios aplicada
+    price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK',
+    price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU'
   }
 ];
 
