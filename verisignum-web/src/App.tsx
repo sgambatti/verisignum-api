@@ -17,7 +17,8 @@ import {
   AlertCircle,
   FileText,
   LogOut,
-  CreditCard
+  CreditCard,
+  Check
 } from 'lucide-react';
 
 // Interfaces TypeScript Rigorosas
@@ -86,15 +87,39 @@ const RENDER_AUTH_REGISTER_URL = "https://verisignum-api.onrender.com/v1/auth/re
 const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboard/me";
 
 // ==========================================
-// CONFIGURAÇÃO DO STRIPE (Coloque o seu Price ID aqui uma única vez!)
+// CATÁLOGO DE PLANOS STRIPE (MÚLTIPLOS PRODUTOS)
+// Substitua os IDs abaixo pelos IDs reais dos seus produtos no Stripe
 // ==========================================
-const STRIPE_PRICE_ID = 'price_1TmkRzHFEg79uXE9ao1Lq5A5'; 
+const STRIPE_PLANS = [
+  { 
+    id: 'price_COLE_O_ID_DO_CREATOR_AQUI', 
+    name: 'Creator', 
+    price: '$29/mês', 
+    desc: 'Até 200 mídias' 
+  },
+  { 
+    id: 'price_COLE_O_ID_DO_PRO_AQUI', 
+    name: 'Professional', 
+    price: '$149/mês', 
+    desc: 'Até 1.500 mídias' 
+  },
+  { 
+    id: 'price_COLE_O_ID_DO_ENTERPRISE_AQUI', 
+    name: 'Enterprise', 
+    price: '$499/mês', 
+    desc: 'API Ilimitada' 
+  }
+];
 
 export default function App() {
   // --- Estados de Autenticação (Login) ---
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
   const [isInitialLoading, setIsInitialLoading] = useState<boolean>(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  
+  // Estado para guardar qual plano o utilizador escolheu
+  const [selectedPlanId, setSelectedPlanId] = useState<string>(STRIPE_PLANS[1].id); // Por defeito, escolhe o PRO
+
   const [authName, setAuthName] = useState<string>('');
   const [authEmail, setAuthEmail] = useState<string>('');
   const [authPassword, setAuthPassword] = useState<string>('');
@@ -166,7 +191,7 @@ export default function App() {
     }
   }, []);
 
-  // --- Funções de Autenticação (Login e Logoff) ---
+  // --- Funções de Autenticação (Login e Registo) ---
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -195,20 +220,19 @@ export default function App() {
         const data = await res.json();
         const newClientId = data.client_id;
 
-        // Tenta gerar o link de pagamento
+        // Gera o link de pagamento usando o plano escolhido no Ecrã!
         try {
           const billingRes = await fetch(RENDER_BILLING_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               tenant_id: newClientId.toString(),
-              price_id: STRIPE_PRICE_ID 
+              price_id: selectedPlanId // <--- Usa o ID dinâmico escolhido pelo utilizador
             })
           });
 
           if (billingRes.ok) {
              const billingData = await billingRes.json();
-             // Redireciona a janela atual diretamente para a Stripe
              window.location.href = billingData.checkout_url; 
              return; 
           } else {
@@ -255,7 +279,7 @@ export default function App() {
     setActiveTab('dashboard');
   };
 
-  // --- NOVA FUNÇÃO: Concluir pagamento de conta pendente (Paywall) ---
+  // --- Função: Concluir pagamento de conta pendente (Paywall) ---
   const handleCompletePayment = async () => {
     if (!clientData) return;
     setBillingLoading('self');
@@ -267,7 +291,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientData.id.toString(),
-          price_id: STRIPE_PRICE_ID 
+          price_id: selectedPlanId // <--- Usa o plano selecionado no Paywall
         })
       });
 
@@ -375,12 +399,15 @@ export default function App() {
   const handleGenerateStripeLink = async (clientId: string) => {
     setBillingLoading(clientId);
     try {
+      // Por defeito, no painel Admin B2B, geramos um link para o plano Enterprise
+      const enterprisePlan = STRIPE_PLANS.find(p => p.name === 'Enterprise') || STRIPE_PLANS[0];
+
       const response = await fetch(RENDER_BILLING_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tenant_id: clientId,
-          price_id: STRIPE_PRICE_ID 
+          price_id: enterprisePlan.id 
         })
       });
 
@@ -723,8 +750,8 @@ export default function App() {
   // --- Ecrã de Proteção (Login / Registo) ---
   if (!isAuthenticated) {
     return (
-      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
-        <div className="w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto py-10">
+        <div className="w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-indigo-500/10 blur-[60px] pointer-events-none"></div>
           
           <div className="flex flex-col items-center mb-8 relative z-10">
@@ -737,15 +764,44 @@ export default function App() {
 
           <form onSubmit={handleAuth} className="space-y-4 relative z-10">
             {authMode === 'register' && (
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
-                <input 
-                  type="text" value={authName} onChange={(e) => setAuthName(e.target.value)}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                  required placeholder="Ex: Universidade de Lisboa"
-                />
-              </div>
+              <>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
+                  <input 
+                    type="text" value={authName} onChange={(e) => setAuthName(e.target.value)}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                    required placeholder="Ex: Universidade de Lisboa"
+                  />
+                </div>
+                
+                {/* --- NOVO: SELEÇÃO DE PLANOS NO REGISTO --- */}
+                <div className="space-y-2 py-2">
+                  <label className="text-xs font-semibold text-gray-400">Selecione o seu Plano de Acesso</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {STRIPE_PLANS.map((plan) => (
+                      <button
+                        type="button"
+                        key={plan.id}
+                        onClick={() => setSelectedPlanId(plan.id)}
+                        className={`p-3 rounded-xl border text-left transition-all relative overflow-hidden ${
+                          selectedPlanId === plan.id 
+                            ? 'bg-indigo-600/10 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.2)]' 
+                            : 'bg-[#0d1117] border-[#30363d] hover:border-gray-500'
+                        }`}
+                      >
+                        {selectedPlanId === plan.id && (
+                          <div className="absolute top-2 right-2 text-indigo-400"><Check size={14}/></div>
+                        )}
+                        <h3 className={`text-sm font-bold ${selectedPlanId === plan.id ? 'text-indigo-400' : 'text-gray-300'}`}>{plan.name}</h3>
+                        <p className="text-lg font-extrabold text-white mt-1">{plan.price}</p>
+                        <p className="text-[10px] text-gray-500 mt-1">{plan.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
             )}
+
             <div className="space-y-1">
               <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
               <input 
@@ -770,7 +826,7 @@ export default function App() {
             )}
 
             <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
-              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Aderir à Plataforma')}
+              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Avançar para Pagamento')}
             </button>
           </form>
 
@@ -784,18 +840,43 @@ export default function App() {
     );
   }
 
-  // --- NOVA BARREIRA DE SEGURANÇA (PAYWALL) ---
+  // --- NOVA BARREIRA DE SEGURANÇA (PAYWALL COM SELEÇÃO DE PLANO) ---
   if (isAuthenticated && clientData && !clientData.is_active) {
     return (
-      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
-        <div className="w-full max-w-md bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative text-center">
+      <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto">
+        <div className="w-full max-w-xl bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative text-center">
           <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
             <CreditCard size={32} className="text-amber-500" />
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Assinatura Pendente</h2>
-          <p className="text-sm text-gray-400 mb-8 leading-relaxed">
-            Olá, <strong className="text-white">{clientData.name}</strong>. A sua conta foi criada com sucesso, mas o acesso ao painel requer a ativação da sua licença.
+          <p className="text-sm text-gray-400 mb-6 leading-relaxed">
+            Olá, <strong className="text-white">{clientData.name}</strong>. Para aceder à plataforma e à sua chave de API, por favor confirme a seleção do seu plano.
           </p>
+
+          <div className="text-left space-y-2 mb-8">
+            <label className="text-xs font-semibold text-gray-400 pl-1">Escolha o plano ideal para si:</label>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {STRIPE_PLANS.map((plan) => (
+                <button
+                  type="button"
+                  key={plan.id}
+                  onClick={() => setSelectedPlanId(plan.id)}
+                  className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden ${
+                    selectedPlanId === plan.id 
+                      ? 'bg-indigo-600/10 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.15)]' 
+                      : 'bg-[#0d1117] border-[#30363d] hover:border-gray-500'
+                  }`}
+                >
+                  {selectedPlanId === plan.id && (
+                    <div className="absolute top-2 right-2 text-indigo-400"><Check size={16}/></div>
+                  )}
+                  <h3 className={`text-sm font-bold ${selectedPlanId === plan.id ? 'text-indigo-400' : 'text-gray-300'}`}>{plan.name}</h3>
+                  <p className="text-xl font-extrabold text-white mt-1">{plan.price}</p>
+                  <p className="text-[10px] text-gray-500 mt-1.5">{plan.desc}</p>
+                </button>
+              ))}
+            </div>
+          </div>
 
           {authError && (
             <div className="p-3 mb-6 rounded-lg text-xs font-medium bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 text-left">
@@ -808,7 +889,7 @@ export default function App() {
             disabled={billingLoading === 'self'}
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg p-3.5 text-sm transition-all flex items-center justify-center gap-2 mb-4 shadow-lg shadow-indigo-500/20"
           >
-            {billingLoading === 'self' ? <Loader2 className="animate-spin" size={16} /> : 'Concluir Pagamento Seguro'}
+            {billingLoading === 'self' ? <Loader2 className="animate-spin" size={16} /> : 'Processar Pagamento Seguro'}
           </button>
           
           <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-white transition-colors underline underline-offset-2">
