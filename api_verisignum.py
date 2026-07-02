@@ -643,7 +643,19 @@ def setup_founder_account(password: str, db: Session = Depends(get_db)):
     return {"message": "Conta de fundador criada e ativada com sucesso!"}
 
 @app.post("/v1/admin/clients")
-def create_admin_client(name: str, db: Session = Depends(get_db)):
+def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
+    import uuid
+    new_key = "vsg_live_" + uuid.uuid4().hex
+    new_client = Client(name=name, api_key=new_key, is_active=False)
+    db.add(new_client)
+    db.commit()
+    db.refresh(new_client)
+    return {"message": "Cliente criado!", "client_name": name, "api_key": new_key, "client_id": new_client.id}
+
+@app.get("/v1/system/fix-db")
+def fix_database(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
