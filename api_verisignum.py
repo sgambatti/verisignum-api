@@ -119,6 +119,14 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
         raise credentials_exception
     return client
 
+# NOVO: Validação Exclusiva de Administrador
+def get_admin_client(current_client: Client = Depends(get_current_client)):
+    # Altere para o seu e-mail real de dono da plataforma!
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "seu_email@verisignum.com") 
+    if current_client.email != ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Acesso restrito. Apenas o administrador da plataforma pode executar esta ação.")
+    return current_client
+
 # --- 7. FUNÇÃO DE ENVIO DE E-MAIL ---
 def send_welcome_email(client_email, client_name):
     if not resend.api_key:
@@ -607,8 +615,23 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 # ROTAS DE SISTEMA & ADMIN
 # ==========================================
 
+@app.get("/v1/admin/clients")
+def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
+    clients = db.query(Client).order_by(Client.id.desc()).all()
+    return [
+        {
+            "id": c.id, 
+            "name": c.name, 
+            "email": c.email,
+            "api_key": c.api_key, 
+            "usage_count": c.usage_count, 
+            "plan": "Ativo" if c.is_active else "Pendente",
+            "status": "Ativo" if c.is_active else "Inativo"
+        } for c in clients
+    ]
+
 @app.post("/v1/admin/clients")
-def create_admin_client(name: str, db: Session = Depends(get_db)):
+def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
     import uuid
     new_key = "vsg_live_" + uuid.uuid4().hex
     new_client = Client(name=name, api_key=new_key, is_active=False)
@@ -616,26 +639,6 @@ def create_admin_client(name: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_client)
     return {"message": "Cliente criado!", "client_name": name, "api_key": new_key, "client_id": new_client.id}
-
-# NOVA ROTA: Obter a lista de clientes para a aba Admin
-@app.get("/v1/admin/clients")
-def get_all_clients(db: Session = Depends(get_db)):
-    clients_db = db.query(Client).order_by(Client.id.desc()).all()
-    result = []
-    for c in clients_db:
-        # Mostra o status e o plano com base na ativação do Stripe
-        status_ativo = "Ativo" if c.is_active else "Inativo"
-        plan_desc = "Ativo" if c.is_active else "Pendente"
-        
-        result.append({
-            "id": str(c.id),
-            "name": c.name,
-            "apiKey": c.api_key,
-            "usageCount": c.usage_count,
-            "plan": plan_desc,
-            "status": status_ativo
-        })
-    return result
 
 @app.get("/v1/system/fix-db")
 def fix_database(db: Session = Depends(get_db)):
@@ -650,7 +653,7 @@ def fix_database(db: Session = Depends(get_db)):
         return {"error": str(e)}
 
 @app.delete("/v1/admin/reset-database")
-def reset_all_clients(db: Session = Depends(get_db)):
+def reset_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
     try:
         db.query(Client).delete()
         db.commit()

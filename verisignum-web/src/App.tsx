@@ -150,6 +150,10 @@ export default function App() {
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
+  // O SEU E-MAIL DE ADMINISTRADOR (Mude para o seu e-mail real)
+  const ADMIN_EMAIL = 'seu_email@verisignum.com'; 
+  const isAdmin = clientData?.email === ADMIN_EMAIL;
+
   const fetchDashboardData = async (token: string) => {
     try {
       const res = await fetch(RENDER_DASHBOARD_ME_URL, {
@@ -171,7 +175,10 @@ export default function App() {
   // Função nova: Buscar os clientes reais no Backend
   const fetchAdminClients = async () => {
     try {
-      const res = await fetch(RENDER_ADMIN_CLIENTS_URL);
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(RENDER_ADMIN_CLIENTS_URL, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
       if (res.ok) {
         const data = await res.json();
         setClients(data);
@@ -365,9 +372,13 @@ export default function App() {
     setIsCreatingClient(true);
     
     try {
+      const token = localStorage.getItem('access_token');
       const response = await fetch(`${RENDER_ADMIN_CLIENTS_URL}?name=${encodeURIComponent(newClientName)}`, {
         method: 'POST',
-        headers: { 'Accept': 'application/json' }
+        headers: { 
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
       });
 
       if (!response.ok) throw new Error('Falha na API');
@@ -932,19 +943,22 @@ export default function App() {
             <button onClick={() => setActiveTab('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Shield size={18} /> VerisignumShield</button>
             <button onClick={() => setActiveTab('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Eye size={18} /> VerisignumLens</button>
             <button onClick={() => setActiveTab('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Code size={18} /> API Developer</button>
-          </nav>
-        </div>
+      </nav>
+    </div>
 
-        <div>
-          <div className="px-4 pb-2">
-            <div className="h-px bg-[#30363d] w-full mb-2"></div>
-            <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
-              <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
-            </button>
-          </div>
-          
-          <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
-            <div className="flex items-center gap-3 mb-3">
+    <div>
+      {isAdmin && (
+        <div className="px-4 pb-2">
+          <div className="h-px bg-[#30363d] w-full mb-2"></div>
+          <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
+            <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
+            <Lock size={14} className="opacity-50"/>
+          </button>
+        </div>
+      )}
+      
+      <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
+        <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400 flex-shrink-0">
                 {clientData?.name ? clientData.name.charAt(0).toUpperCase() : 'V'}
               </div>
@@ -981,11 +995,11 @@ export default function App() {
 
         <div className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
-          {}
-          {activeTab === 'admin' && (
-            <div className="space-y-6">
-              <div className="flex justify-between items-end">
-                <div>
+      {/* ABA ADMIN */}
+      {activeTab === 'admin' && isAdmin && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-end">
+            <div>
                   <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
                   <p className="text-sm text-gray-400 mt-1">Crie chaves de API para novas faculdades e gere links de faturação na Stripe.</p>
                 </div>
