@@ -60,19 +60,14 @@ interface ClientTenant {
   name: string;
   apiKey: string;
   usageCount: number;
-  plan: 'Trial' | 'Pro' | 'Enterprise';
-  status: 'Ativo' | 'Inativo';
+  plan: string;
+  status: string;
 }
 
 const MOCK_ASSETS: Asset[] = [
   { id: '1', name: 'palestra_reitor_oficial.mp4', type: 'Video', status: 'Verificado', score: 99, date: '18 Mai 2026', author: 'Reitoria Universitária' },
   { id: '2', name: 'grafico_lucros_q1_sintetico.png', type: 'Imagem', status: 'Sem Assinatura', score: 8, date: '17 Mai 2026', author: 'Desconhecido' },
   { id: '3', name: 'clonagem_voz_auditoria.mp3', type: 'Áudio', status: 'Possível Deepfake', score: 38, date: '15 Mai 2026', author: 'Desconhecido' },
-];
-
-const INITIAL_CLIENTS: ClientTenant[] = [
-  { id: '1', name: 'EdTech Brasil', apiKey: 'vsg_live_7a3bc9f8e2d1...', usageCount: 1245, plan: 'Enterprise', status: 'Ativo' },
-  { id: '2', name: 'Universidade Veritas', apiKey: 'vsg_live_8f7b2c9a1d4...', usageCount: 350, plan: 'Pro', status: 'Ativo' },
 ];
 
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
@@ -105,7 +100,7 @@ const STRIPE_PLANS = [
     id: 'enterprise', 
     name: 'Enterprise', 
     price: '$499/mês', 
-    desc: 'Até 10.000 mídias', // <-- Correção estratégica de negócios aplicada
+    desc: 'Até 10.000 mídias', 
     price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK',
     price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU'
   }
@@ -149,7 +144,8 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 
-  const [clients, setClients] = useState<ClientTenant[]>(INITIAL_CLIENTS);
+  // Removido o INITIAL_CLIENTS, agora começamos vazios
+  const [clients, setClients] = useState<ClientTenant[]>([]);
   const [newClientName, setNewClientName] = useState<string>('');
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
@@ -171,6 +167,26 @@ export default function App() {
       setIsInitialLoading(false);
     }
   };
+
+  // Função nova: Buscar os clientes reais no Backend
+  const fetchAdminClients = async () => {
+    try {
+      const res = await fetch(RENDER_ADMIN_CLIENTS_URL);
+      if (res.ok) {
+        const data = await res.json();
+        setClients(data);
+      }
+    } catch (err) {
+      console.error("Erro ao buscar clientes reais:", err);
+    }
+  };
+
+  // Efeito novo: Disparar a busca de clientes sempre que a aba Admin for aberta
+  useEffect(() => {
+    if (activeTab === 'admin') {
+      fetchAdminClients();
+    }
+  }, [activeTab]);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -356,18 +372,8 @@ export default function App() {
 
       if (!response.ok) throw new Error('Falha na API');
       
-      const data = await response.json();
-      
-      const newTenant: ClientTenant = {
-        id: data.client_id ? data.client_id.toString() : Math.floor(Math.random() * 100000).toString(),
-        name: data.client_name || newClientName,
-        apiKey: data.api_key,
-        usageCount: 0,
-        plan: 'Trial',
-        status: 'Ativo'
-      };
-      
-      setClients([newTenant, ...clients]);
+      // Quando cria com sucesso, já chamamos a função para recarregar a lista fresca da Base de Dados
+      await fetchAdminClients();
       setNewClientName('');
       
     } catch (error) {
@@ -959,6 +965,7 @@ export default function App() {
         </div>
       </aside>
 
+      {/* Conteúdo Principal */}
       <main className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 border-b border-[#30363d] px-8 flex items-center justify-between bg-[#161b22]">
           <div className="flex items-center gap-2">

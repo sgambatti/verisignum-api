@@ -318,9 +318,7 @@ async def verificar_midia(
         with open(caminho_temp, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
 
-        # -----------------------------------------------------------------
         # PASSO 1: INSPEÇÃO CRIPTOGRÁFICA (O ELO COM O SHIELD)
-        # -----------------------------------------------------------------
         has_c2pa = False
         author_name = "Verisignum Trust Network"
         
@@ -367,9 +365,7 @@ async def verificar_midia(
             }
 
 
-        # -----------------------------------------------------------------
         # PASSO 2: HIVE AI (SE NÃO TIVER C2PA)
-        # -----------------------------------------------------------------
         hive_api_key = os.getenv("HIVE_API_KEY")
         
         final_score = 85
@@ -524,9 +520,6 @@ async def copilot_chat(req: ChatRequest):
 
 @app.post("/v1/billing/create-checkout-session")
 async def create_checkout_session(request: Request, db: Session = Depends(get_db)):
-    """
-    Recebe price_id_fixo e price_id_variavel para gerar a assinatura híbrida.
-    """
     try:
         data = await request.json()
         tenant_id = data.get('tenant_id')
@@ -582,7 +575,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     except stripe.error.SignatureVerificationError:
         raise HTTPException(status_code=400, detail="Invalid signature")
 
-    # 1. Quando o cliente ativa a subscrição
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         tenant_id = session.get('metadata', {}).get('tenant_id')
@@ -596,7 +588,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 db.commit()
                 logger.info(f"SUCESSO: Conta ativada para o tenant_id {tenant_id}.")
 
-    # 2. Quando a fatura mensal falha
     elif event['type'] == 'invoice.payment_failed':
         invoice = event['data']['object']
         stripe_customer_id = invoice.get('customer')
@@ -607,7 +598,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             db.commit()
             logger.warning(f"ALERTA: Pagamento falhou. Conta {cliente.name} bloqueada.")
 
-    # 3. Fatura mensal paga
     elif event['type'] == 'invoice.paid':
         logger.info(f"Fatura mensal paga com sucesso.")
 
@@ -626,6 +616,26 @@ def create_admin_client(name: str, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_client)
     return {"message": "Cliente criado!", "client_name": name, "api_key": new_key, "client_id": new_client.id}
+
+# NOVA ROTA: Obter a lista de clientes para a aba Admin
+@app.get("/v1/admin/clients")
+def get_all_clients(db: Session = Depends(get_db)):
+    clients_db = db.query(Client).order_by(Client.id.desc()).all()
+    result = []
+    for c in clients_db:
+        # Mostra o status e o plano com base na ativação do Stripe
+        status_ativo = "Ativo" if c.is_active else "Inativo"
+        plan_desc = "Ativo" if c.is_active else "Pendente"
+        
+        result.append({
+            "id": str(c.id),
+            "name": c.name,
+            "apiKey": c.api_key,
+            "usageCount": c.usage_count,
+            "plan": plan_desc,
+            "status": status_ativo
+        })
+    return result
 
 @app.get("/v1/system/fix-db")
 def fix_database(db: Session = Depends(get_db)):
