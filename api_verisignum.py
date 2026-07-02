@@ -119,10 +119,9 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
         raise credentials_exception
     return client
 
-# NOVO: Validação Exclusiva de Administrador
+# NOVO: Validação Exclusiva de Administrador (Role-Based Access Control)
 def get_admin_client(current_client: Client = Depends(get_current_client)):
-    # Altere para o seu e-mail real de dono da plataforma!
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "seu_email@verisignum.com") 
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com") 
     if current_client.email != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Acesso restrito. Apenas o administrador da plataforma pode executar esta ação.")
     return current_client
@@ -331,7 +330,6 @@ async def verificar_midia(
         author_name = "Verisignum Trust Network"
         
         try:
-            logger.info("Lens: A extrair assinatura C2PA local (Zero Custo)...")
             cmd_c2pa = ["c2patool", caminho_temp]
             result_c2pa = subprocess.run(cmd_c2pa, capture_output=True, text=True)
             
@@ -356,7 +354,6 @@ async def verificar_midia(
             logger.error(f"Lens: Erro ao tentar ler C2PA: {str(e)}")
 
         if has_c2pa:
-            logger.info(f"Lens: Selo C2PA intacto encontrado! Autor: {author_name}. Economizando cota da Hive AI.")
             current_client.usage_count += 1
             db.commit()
             return {
@@ -381,8 +378,6 @@ async def verificar_midia(
         anomalies = []
 
         if hive_api_key:
-            logger.info("A iniciar contacto com a HIVE AI (Endpoint Universal V3)...")
-            
             chave_limpa = hive_api_key.strip()
             if chave_limpa.lower().startswith("bearer"):
                 chave_limpa = chave_limpa[6:].strip()
@@ -405,8 +400,6 @@ async def verificar_midia(
                 
             if response.status_code == 200:
                 res_data = response.json()
-                logger.info("Resposta da Hive AI recebida com sucesso.")
-                
                 try:
                     ai_score = 0.0
                     is_ai = False
@@ -449,21 +442,11 @@ async def verificar_midia(
                         anomalies.append("A matriz de dados é consistente com uma gravação natural.")
                         
                 except Exception as parse_err:
-                    logger.error(f"Erro ao analisar dados da Hive: {parse_err}")
                     anomalies.append("Erro na formatação estrutural do laudo heurístico da Hive AI.")
             else:
-                erro_txt = response.text
-                logger.warning(f"A Hive bloqueou o acesso! HTTP {response.status_code}: {erro_txt}")
                 anomalies.append(f"A API da Hive AI recusou o arquivo (Erro HTTP {response.status_code}).")
-                try:
-                    erro_json = response.json()
-                    detalhe = erro_json.get('message', str(erro_json))
-                except:
-                    detalhe = erro_txt
-                anomalies.append(f"Motivo exato retornado pela Hive AI: {detalhe[:300]}")
                 anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
-            logger.info("Chave da Hive ausente. Rodando análise Lens Simulada.")
             filename_lower = file.filename.lower()
             is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
             final_score = 15 if is_ai else 85
@@ -485,7 +468,6 @@ async def verificar_midia(
         }
 
     except Exception as e:
-        logger.error(f"Erro no VerisignumLens: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro na análise forense: {str(e)}")
     finally:
         if os.path.exists(caminho_temp):
@@ -519,100 +501,10 @@ async def copilot_chat(req: ChatRequest):
         reply_text = data["candidates"][0]["content"]["parts"][0]["text"]
         return {"reply": reply_text}
     except Exception as e:
-        logger.error(f"Erro Gemini: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro na comunicação com a IA: {str(e)}")
 
 # ==========================================
-# ROTAS DE FATURAÇÃO (STRIPE MULTI-PLANO)
-# ==========================================
-
-@app.post("/v1/billing/create-checkout-session")
-async def create_checkout_session(request: Request, db: Session = Depends(get_db)):
-    try:
-        data = await request.json()
-        tenant_id = data.get('tenant_id')
-        price_id_fixo = data.get('price_id_fixo')
-        price_id_variavel = data.get('price_id_variavel')
-        
-        if not tenant_id or not price_id_fixo:
-            raise HTTPException(status_code=400, detail="tenant_id e price_id_fixo são obrigatórios")
-
-        cliente = db.query(Client).filter(Client.id == int(tenant_id)).first()
-        if not cliente:
-            raise HTTPException(status_code=404, detail="Cliente não encontrado")
-
-        line_items = [{'price': price_id_fixo, 'quantity': 1}]
-        if price_id_variavel:
-            line_items.append({'price': price_id_variavel})
-
-        checkout_session = stripe.checkout.Session.create(
-            payment_method_types=['card'],
-            line_items=line_items,
-            mode='subscription',
-            success_url='https://verisignumdigital.com/?payment=success', 
-            cancel_url='https://verisignumdigital.com/?payment=cancelled', 
-            metadata={
-                'tenant_id': str(tenant_id),
-                'client_name': cliente.name
-            },
-            allow_promotion_codes=True,
-        )
-        
-        logger.info(f"Link de checkout gerado para: {cliente.name}")
-        return JSONResponse(content={'checkout_url': checkout_session.url}, status_code=200)
-        
-    except stripe.error.StripeError as e:
-        logger.error(f"Erro Stripe: {str(e)}")
-        raise HTTPException(status_code=400, detail="Falha com o provedor de pagamentos")
-    except Exception as e:
-        logger.error(f"Erro interno: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/v1/billing/webhook")
-async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    payload = await request.body()
-    sig_header = request.headers.get('Stripe-Signature')
-
-    if not sig_header or not ENDPOINT_SECRET:
-        raise HTTPException(status_code=400, detail="Assinatura ausente ou chave não configurada")
-
-    try:
-        event = stripe.Webhook.construct_event(payload, sig_header, ENDPOINT_SECRET)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid payload")
-    except stripe.error.SignatureVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid signature")
-
-    if event['type'] == 'checkout.session.completed':
-        session = event['data']['object']
-        tenant_id = session.get('metadata', {}).get('tenant_id')
-        stripe_customer_id = session.get('customer')
-        
-        if tenant_id:
-            cliente = db.query(Client).filter(Client.id == int(tenant_id)).first()
-            if cliente:
-                cliente.is_active = True
-                cliente.stripe_customer_id = stripe_customer_id
-                db.commit()
-                logger.info(f"SUCESSO: Conta ativada para o tenant_id {tenant_id}.")
-
-    elif event['type'] == 'invoice.payment_failed':
-        invoice = event['data']['object']
-        stripe_customer_id = invoice.get('customer')
-        
-        cliente = db.query(Client).filter(Client.stripe_customer_id == stripe_customer_id).first()
-        if cliente:
-            cliente.is_active = False 
-            db.commit()
-            logger.warning(f"ALERTA: Pagamento falhou. Conta {cliente.name} bloqueada.")
-
-    elif event['type'] == 'invoice.paid':
-        logger.info(f"Fatura mensal paga com sucesso.")
-
-    return JSONResponse(content={"success": True}, status_code=200)
-
-# ==========================================
-# ROTAS DE SISTEMA & ADMIN
+# ROTAS DE SISTEMA & ADMIN (MÁQUINA DO TEMPO)
 # ==========================================
 
 @app.post("/v1/admin/setup-founder")
@@ -642,8 +534,25 @@ def setup_founder_account(password: str, db: Session = Depends(get_db)):
     db.commit()
     return {"message": "Conta de fundador criada e ativada com sucesso!"}
 
+@app.get("/v1/admin/clients")
+def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
+    """Rota RESTrita (Só o Admin): Busca todos os clientes registados na base de dados."""
+    clients = db.query(Client).order_by(Client.id.desc()).all()
+    return [
+        {
+            "id": str(c.id), 
+            "name": c.name, 
+            "email": c.email,
+            "apiKey": c.api_key, 
+            "usageCount": c.usage_count, 
+            "plan": "Enterprise" if c.stripe_customer_id else "Trial",
+            "status": "Ativo" if c.is_active else "Inativo"
+        } for c in clients
+    ]
+
 @app.post("/v1/admin/clients")
 def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
+    """Rota RESTrita (Só o Admin): Cria um novo cliente manualmente."""
     import uuid
     new_key = "vsg_live_" + uuid.uuid4().hex
     new_client = Client(name=name, api_key=new_key, is_active=False)

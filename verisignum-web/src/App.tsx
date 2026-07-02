@@ -60,15 +60,9 @@ interface ClientTenant {
   name: string;
   apiKey: string;
   usageCount: number;
-  plan: string;
-  status: string;
+  plan: 'Trial' | 'Pro' | 'Enterprise';
+  status: 'Ativo' | 'Inativo';
 }
-
-const MOCK_ASSETS: Asset[] = [
-  { id: '1', name: 'palestra_reitor_oficial.mp4', type: 'Video', status: 'Verificado', score: 99, date: '18 Mai 2026', author: 'Reitoria Universitária' },
-  { id: '2', name: 'grafico_lucros_q1_sintetico.png', type: 'Imagem', status: 'Sem Assinatura', score: 8, date: '17 Mai 2026', author: 'Desconhecido' },
-  { id: '3', name: 'clonagem_voz_auditoria.mp3', type: 'Áudio', status: 'Possível Deepfake', score: 38, date: '15 Mai 2026', author: 'Desconhecido' },
-];
 
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
@@ -100,7 +94,7 @@ const STRIPE_PLANS = [
     id: 'enterprise', 
     name: 'Enterprise', 
     price: '$499/mês', 
-    desc: 'Até 10.000 mídias', 
+    desc: 'Até 10.000 mídias',
     price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK',
     price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU'
   }
@@ -120,7 +114,7 @@ export default function App() {
   const [clientData, setClientData] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState<string>('dashboard'); 
-  const [assets, setAssets] = useState<Asset[]>(MOCK_ASSETS);
+  const [assets, setAssets] = useState<Asset[]>([]);
   const [isKeyVisible, setIsKeyVisible] = useState<boolean>(false);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
 
@@ -144,13 +138,12 @@ export default function App() {
   const [inputMessage, setInputMessage] = useState<string>('');
   const [isChatLoading, setIsChatLoading] = useState<boolean>(false);
 
-  // Removido o INITIAL_CLIENTS, agora começamos vazios
   const [clients, setClients] = useState<ClientTenant[]>([]);
   const [newClientName, setNewClientName] = useState<string>('');
   const [isCreatingClient, setIsCreatingClient] = useState<boolean>(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
-  // O SEU E-MAIL DE ADMINISTRADOR (Mude para o seu e-mail real)
+  // A DUPLA BLINDAGEM (FRONTEND)
   const ADMIN_EMAIL = 'contato@verisignumdigital.com'; 
   const isAdmin = clientData?.email === ADMIN_EMAIL;
 
@@ -172,7 +165,6 @@ export default function App() {
     }
   };
 
-  // Função nova: Buscar os clientes reais no Backend
   const fetchAdminClients = async () => {
     try {
       const token = localStorage.getItem('access_token');
@@ -188,13 +180,6 @@ export default function App() {
     }
   };
 
-  // Efeito novo: Disparar a busca de clientes sempre que a aba Admin for aberta
-  useEffect(() => {
-    if (activeTab === 'admin') {
-      fetchAdminClients();
-    }
-  }, [activeTab]);
-
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (token) {
@@ -204,6 +189,12 @@ export default function App() {
       setIsInitialLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'admin' && isAdmin) {
+      fetchAdminClients();
+    }
+  }, [activeTab, isAdmin]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -383,25 +374,12 @@ export default function App() {
 
       if (!response.ok) throw new Error('Falha na API');
       
-      // Quando cria com sucesso, já chamamos a função para recarregar a lista fresca da Base de Dados
-      await fetchAdminClients();
+      // Recarrega a base de dados após criar
+      fetchAdminClients();
       setNewClientName('');
       
     } catch (error) {
-      console.warn("API offline. Simulação de Fallback local...");
-      const mockKey = 'vsg_live_' + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-      
-      const newTenant: ClientTenant = {
-        id: Math.floor(Math.random() * 100000).toString(),
-        name: newClientName,
-        apiKey: mockKey,
-        usageCount: 0,
-        plan: 'Trial',
-        status: 'Ativo'
-      };
-      
-      setClients([newTenant, ...clients]);
-      setNewClientName('');
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Acesso Negado ou API Offline" }));
     } finally {
       setIsCreatingClient(false);
     }
@@ -943,22 +921,23 @@ export default function App() {
             <button onClick={() => setActiveTab('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Shield size={18} /> VerisignumShield</button>
             <button onClick={() => setActiveTab('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Eye size={18} /> VerisignumLens</button>
             <button onClick={() => setActiveTab('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Code size={18} /> API Developer</button>
-      </nav>
-    </div>
-
-    <div>
-      {isAdmin && (
-        <div className="px-4 pb-2">
-          <div className="h-px bg-[#30363d] w-full mb-2"></div>
-          <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
-            <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
-            <Lock size={14} className="opacity-50"/>
-          </button>
+          </nav>
         </div>
-      )}
-      
-      <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
-        <div className="flex items-center gap-3 mb-3">
+
+        <div>
+          {/* A FECHADURA VISUAL: A aba Admin só aparece se for você! */}
+          {isAdmin && (
+            <div className="px-4 pb-2">
+              <div className="h-px bg-[#30363d] w-full mb-2"></div>
+              <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
+                <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
+                <Lock size={14} className="opacity-50"/>
+              </button>
+            </div>
+          )}
+          
+          <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
+            <div className="flex items-center gap-3 mb-3">
               <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400 flex-shrink-0">
                 {clientData?.name ? clientData.name.charAt(0).toUpperCase() : 'V'}
               </div>
@@ -995,11 +974,11 @@ export default function App() {
 
         <div className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
-      {/* ABA ADMIN */}
-      {activeTab === 'admin' && isAdmin && (
-        <div className="space-y-6">
-          <div className="flex justify-between items-end">
-            <div>
+          {/* ABA ADMIN PROTEGIDA */}
+          {activeTab === 'admin' && isAdmin && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-end">
+                <div>
                   <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
                   <p className="text-sm text-gray-400 mt-1">Crie chaves de API para novas faculdades e gere links de faturação na Stripe.</p>
                 </div>
@@ -1051,7 +1030,7 @@ export default function App() {
                               <div className="text-[10px]">{client.plan} Plan</div>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="font-mono text-xs">{client.apiKey.substring(0, 15)}...</span>
+                              <span className="font-mono text-xs">{client.apiKey?.substring(0, 15)}...</span>
                             </td>
                             <td className="px-6 py-4 text-center">
                               <button 
@@ -1086,7 +1065,7 @@ export default function App() {
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
                   <span className="text-xs font-semibold text-gray-400">Total de Verificações</span>
                   <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-white">1,482</span>
+                    <span className="text-3xl font-extrabold text-white">{clientData?.usage_count || 0}</span>
                   </div>
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
@@ -1105,7 +1084,6 @@ export default function App() {
             </div>
           )}
 
-          {}
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
@@ -1143,14 +1121,13 @@ export default function App() {
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
-                    <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white" />
-                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white" />
+                    <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
+                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
                   </div>
 
                   <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isShielding ? <Loader2 className="animate-spin" /> : 'Assinar Mídia'}
+                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia'}
                   </button>
-                  {shieldStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{shieldStep}</p>}
                 </form>
               </div>
 
@@ -1162,7 +1139,7 @@ export default function App() {
                         <CheckCircle2 className="text-emerald-400" size={24} />
                         <div><p className="text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
                       </div>
-                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto">{shieldResult.manifest}</pre>
+                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto border border-[#30363d]">{shieldResult.manifest}</pre>
                     </div>
                   ) : (
                     <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
@@ -1174,7 +1151,6 @@ export default function App() {
             </div>
           )}
 
-          {}
           {activeTab === 'lens' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
@@ -1209,9 +1185,8 @@ export default function App() {
                     </label>
                   </div>
                   <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isScanning ? <Loader2 className="animate-spin" /> : 'Executar Análise'}
+                    {isScanning ? <><Loader2 className="animate-spin" size={16}/> {scanStep}</> : 'Executar Análise'}
                   </button>
-                  {scanStep && <p className="text-xs text-indigo-400 mt-2 font-mono text-center animate-pulse">{scanStep}</p>}
                 </form>
               </div>
 
@@ -1254,16 +1229,16 @@ export default function App() {
             </div>
           )}
 
-          {}
           {activeTab === 'api' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
                   <Key className="text-indigo-500" /> API Access Keys
                 </h3>
-                <div className="bg-[#0d1117] border border-[#30363d] p-3 rounded-lg flex justify-between font-mono text-xs text-indigo-400">
-                   {isKeyVisible ? clientData?.api_key || 'A carregar...' : '••••••••••••••••••••••••••••••••'}
-                   <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white hover:text-indigo-400 transition-colors">Revelar</button>
+                <p className="text-sm text-gray-400 mb-4">Utilize esta chave para assinar ativos através de sistemas externos de forma automatizada.</p>
+                <div className="flex justify-between items-center p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
+                  <span className="font-mono text-indigo-400 text-sm">{isKeyVisible ? clientData?.api_key : '••••••••••••••••••••••••••••••••'}</span>
+                  <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white text-xs bg-[#21262d] px-3 py-1.5 rounded hover:bg-[#30363d] transition-colors">Revelar</button>
                 </div>
               </div>
             </div>
@@ -1286,8 +1261,8 @@ export default function App() {
                  {isChatLoading && <Loader2 size={16} className="animate-spin text-indigo-400" />}
               </div>
               <div className="p-4 border-t border-[#30363d] bg-[#161b22] flex gap-3">
-                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none" />
-                 <button onClick={sendMessageToGemini} className="bg-indigo-600 text-white p-3 rounded-lg"><Send size={18}/></button>
+                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} placeholder="Faça uma pergunta sobre a norma C2PA..." className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none focus:border-indigo-500" />
+                 <button onClick={sendMessageToGemini} className="bg-indigo-600 px-4 rounded-lg text-white hover:bg-indigo-700 transition-colors"><Send size={18}/></button>
               </div>
             </div>
           )}
