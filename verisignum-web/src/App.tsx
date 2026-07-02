@@ -151,7 +151,7 @@ export default function App() {
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
   // O SEU E-MAIL DE ADMINISTRADOR (Mude para o seu e-mail real)
-  const ADMIN_EMAIL = 'seu_email@verisignum.com'; 
+  const ADMIN_EMAIL = 'contato@verisignum.com'; 
   const isAdmin = clientData?.email === ADMIN_EMAIL;
 
   const fetchDashboardData = async (token: string) => {
