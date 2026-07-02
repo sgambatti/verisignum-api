@@ -122,7 +122,7 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
 # NOVO: Validação Exclusiva de Administrador
 def get_admin_client(current_client: Client = Depends(get_current_client)):
     # Altere para o seu e-mail real de dono da plataforma!
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com") 
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "seu_email@verisignum.com") 
     if current_client.email != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Acesso restrito. Apenas o administrador da plataforma pode executar esta ação.")
     return current_client
@@ -615,35 +615,35 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 # ROTAS DE SISTEMA & ADMIN
 # ==========================================
 
-@app.get("/v1/admin/clients")
-def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    clients = db.query(Client).order_by(Client.id.desc()).all()
-    return [
-        {
-            "id": c.id, 
-            "name": c.name, 
-            "email": c.email,
-            "api_key": c.api_key, 
-            "usage_count": c.usage_count, 
-            "plan": "Ativo" if c.is_active else "Pendente",
-            "status": "Ativo" if c.is_active else "Inativo"
-        } for c in clients
-    ]
-
-@app.post("/v1/admin/clients")
-def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    import uuid
-    new_key = "vsg_live_" + uuid.uuid4().hex
-    new_client = Client(name=name, api_key=new_key, is_active=False)
+@app.post("/v1/admin/setup-founder")
+def setup_founder_account(password: str, db: Session = Depends(get_db)):
+    """Rota secreta para criar a conta do dono sem passar pelo Stripe."""
+    email = "contato@verisignumdigital.com"
+    
+    # Verifica se a conta já existe
+    cliente_existente = db.query(Client).filter(Client.email == email).first()
+    if cliente_existente:
+        cliente_existente.hashed_password = pwd_context.hash(password)
+        cliente_existente.is_active = True
+        db.commit()
+        return {"message": "Conta de fundador atualizada e ativada com sucesso!"}
+    
+    import secrets
+    new_key = "vsg_live_" + secrets.token_hex(16)
+    
+    new_client = Client(
+        name="Verisignum Admin",
+        email=email,
+        hashed_password=pwd_context.hash(password),
+        api_key=new_key,
+        is_active=True  # A conta nasce ativada, burlando o bloqueio da Stripe
+    )
     db.add(new_client)
     db.commit()
-    db.refresh(new_client)
-    return {"message": "Cliente criado!", "client_name": name, "api_key": new_key, "client_id": new_client.id}
+    return {"message": "Conta de fundador criada e ativada com sucesso!"}
 
-@app.get("/v1/system/fix-db")
-def fix_database(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
+@app.post("/v1/admin/clients")
+def create_admin_client(name: str, db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.commit()
