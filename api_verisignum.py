@@ -122,7 +122,7 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
 # NOVO: Validação Exclusiva de Administrador
 def get_admin_client(current_client: Client = Depends(get_current_client)):
     # Altere para o seu e-mail real de dono da plataforma!
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignum.com") 
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com") 
     if current_client.email != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Acesso restrito. Apenas o administrador da plataforma pode executar esta ação.")
     return current_client
