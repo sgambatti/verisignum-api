@@ -18,7 +18,9 @@ import {
   FileText,
   LogOut,
   CreditCard,
-  Check
+  Check,
+  Menu,
+  X
 } from 'lucide-react';
 
 interface Asset {
@@ -115,6 +117,7 @@ export default function App() {
   const [clientData, setClientData] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // NOVO ESTADO MOBILE
   const [assets, setAssets] = useState<Asset[]>([]);
   const [isKeyVisible, setIsKeyVisible] = useState(false);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ hash: false, key: false, error: null });
@@ -197,6 +200,12 @@ export default function App() {
     }
   }, [activeTab, isAdmin]);
 
+  // Função auxiliar para fechar o menu mobile ao trocar de aba
+  const handleTabChange = (tab: string) => {
+    setActiveTab(tab);
+    setIsMobileMenuOpen(false);
+  };
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -222,7 +231,7 @@ export default function App() {
             throw new Error(error.detail || 'Erro ao criar conta.');
         }
         
-        // Login automático imediatamente após criar a conta
+        // Lógica de Login Automático após o registo
         const formData = new URLSearchParams();
         formData.append('username', authEmail);
         formData.append('password', authPassword);
@@ -278,6 +287,7 @@ export default function App() {
     setIsAuthenticated(false);
     setClientData(null);
     setActiveTab('dashboard');
+    setIsMobileMenuOpen(false);
   };
 
   const handleCompletePayment = async () => {
@@ -629,7 +639,7 @@ export default function App() {
 
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) {
-        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "O seu navegador bloqueou a abertura do PDF. Permita pop-ups." }));
+        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "O navegador bloqueou a abertura do PDF. Permita pop-ups." }));
         return;
     }
 
@@ -760,7 +770,7 @@ export default function App() {
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto py-10">
-        <div className="w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative overflow-hidden">
+        <div className="w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-indigo-500/10 blur-[60px] pointer-events-none"></div>
           
           <div className="flex flex-col items-center mb-8 relative z-10">
@@ -768,7 +778,7 @@ export default function App() {
               <Shield className="text-indigo-500" size={28} />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-wider">VERISIGNUM</h1>
-            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Enterprise Portal</p>
+            <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono text-center">Enterprise Portal</p>
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4 relative z-10">
@@ -851,7 +861,7 @@ export default function App() {
   if (isAuthenticated && clientData && !clientData.is_active) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto">
-        <div className="w-full max-w-xl bg-[#161b22] border border-[#30363d] rounded-2xl p-8 shadow-2xl relative text-center">
+        <div className="w-full max-w-xl bg-[#161b22] border border-[#30363d] rounded-2xl p-6 sm:p-8 shadow-2xl relative text-center">
           <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
             <CreditCard size={32} className="text-amber-500" />
           </div>
@@ -932,42 +942,54 @@ export default function App() {
         </div>
       )}
 
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between">
+      {/* OVERLAY MOBILE: Fundo escuro quando o menu está aberto */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" 
+          onClick={() => setIsMobileMenuOpen(false)} 
+        />
+      )}
+
+      {/* Sidebar Responsiva (Gaweta deslizante no mobile) */}
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between transform transition-transform duration-300 ease-in-out md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div>
-          <div className="p-6 border-b border-[#30363d] flex items-center gap-3">
-            <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              <img 
-                src="/logo.png" 
-                alt="Verisignum Logo" 
-                className="w-8 h-8 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" 
-                onError={(e) => { 
-                  e.currentTarget.style.display = 'none'; 
-                  e.currentTarget.parentElement?.querySelector('svg')?.classList.remove('hidden'); 
-                }} 
-              />
-              <Shield size={24} className="text-amber-500 hidden animate-pulse" />
+          <div className="p-6 border-b border-[#30363d] flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                <img 
+                  src="/logo.png" 
+                  alt="Verisignum Logo" 
+                  className="w-6 h-6 sm:w-8 sm:h-8 object-contain drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]" 
+                  onError={(e) => { 
+                    e.currentTarget.style.display = 'none'; 
+                    e.currentTarget.parentElement?.querySelector('svg')?.classList.remove('hidden'); 
+                  }} 
+                />
+                <Shield size={24} className="text-amber-500 hidden animate-pulse" />
+              </div>
+              <div>
+                <h1 className="text-base sm:text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
+                <span className="text-[9px] sm:text-[10px] uppercase tracking-widest text-amber-400 font-mono">Padrão Ouro Digital</span>
+              </div>
             </div>
-            <div>
-              <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
-              <span className="text-[10px] uppercase tracking-widest text-amber-400 font-mono">Padrão Ouro Digital</span>
-            </div>
+            <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-gray-400 hover:text-white">
+              <X size={24} />
+            </button>
           </div>
           
           <nav className="p-4 space-y-1">
-            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Activity size={18} /> Painel de Controlo</button>
-            <button onClick={() => setActiveTab('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Shield size={18} /> VerisignumShield</button>
-            <button onClick={() => setActiveTab('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Eye size={18} /> VerisignumLens</button>
-            <button onClick={() => setActiveTab('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Code size={18} /> API Developer</button>
+            <button onClick={() => handleTabChange('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Activity size={18} /> Painel de Controlo</button>
+            <button onClick={() => handleTabChange('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Shield size={18} /> VerisignumShield</button>
+            <button onClick={() => handleTabChange('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Eye size={18} /> VerisignumLens</button>
+            <button onClick={() => handleTabChange('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Code size={18} /> API Developer</button>
           </nav>
         </div>
 
         <div>
-          {/* A FECHADURA VISUAL: A aba Admin só aparece se for você! */}
           {isAdmin && (
             <div className="px-4 pb-2">
               <div className="h-px bg-[#30363d] w-full mb-2"></div>
-              <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
+              <button onClick={() => handleTabChange('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
                 <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
                 <Lock size={14} className="opacity-50"/>
               </button>
@@ -997,33 +1019,36 @@ export default function App() {
       </aside>
 
       {/* Conteúdo Principal */}
-      <main className="flex-1 flex flex-col overflow-y-auto">
-        <header className="h-16 border-b border-[#30363d] px-8 flex items-center justify-between bg-[#161b22]">
+      <main className="flex-1 flex flex-col w-full h-full overflow-hidden">
+        <header className="h-16 border-b border-[#30363d] px-4 md:px-8 flex items-center justify-between bg-[#161b22] shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono font-medium border border-indigo-500/20">MVP Conectado</span>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-medium border border-emerald-500/20">Render Cloud API</span>
+            <button onClick={() => setIsMobileMenuOpen(true)} className="md:hidden text-gray-400 hover:text-white mr-2">
+              <Menu size={24} />
+            </button>
+            <span className="text-[10px] sm:text-xs px-2 sm:px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono font-medium border border-indigo-500/20 whitespace-nowrap">MVP Conectado</span>
+            <span className="hidden sm:inline-flex text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-medium border border-emerald-500/20">Render Cloud API</span>
           </div>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setActiveTab('copilot')} className="flex items-center gap-2 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-lg text-sm hover:bg-indigo-600 hover:text-white transition-all">
-              <Sparkles size={16} /> Compliance Copilot
+          <div className="flex items-center">
+            <button onClick={() => setActiveTab('copilot')} className="flex items-center gap-1.5 sm:gap-2 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg text-xs sm:text-sm hover:bg-indigo-600 hover:text-white transition-all whitespace-nowrap">
+              <Sparkles size={14} className="sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Compliance</span> Copilot
             </button>
           </div>
         </header>
 
-        <div className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
+        <div className="p-4 md:p-8 w-full mx-auto space-y-6 md:space-y-8 flex-1 overflow-y-auto overflow-x-hidden">
 
           {}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6">
-              <div className="flex justify-between items-end">
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2">
                 <div>
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
-                  <p className="text-sm text-gray-400 mt-1">Crie chaves de API para novas faculdades e gere links de faturação na Stripe.</p>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
+                  <p className="text-xs sm:text-sm text-gray-400 mt-1">Crie chaves de API e links de faturação na Stripe.</p>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-6 rounded-xl h-fit">
+                <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl h-fit">
                   <h3 className="text-md font-bold text-white mb-4">Novo Cliente</h3>
                   <form onSubmit={handleCreateClient} className="space-y-4">
                     <div className="space-y-1">
@@ -1047,37 +1072,38 @@ export default function App() {
                   </form>
                 </div>
 
-                <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-xl">
-                  <div className="px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#1c2128]">
+                <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-xl w-full">
+                  <div className="px-4 sm:px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#1c2128]">
                     <h3 className="font-bold text-white text-sm">Contas Ativas</h3>
                   </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-gray-400">
+                  <div className="overflow-x-auto w-full">
+                    <table className="w-full min-w-[600px] text-left text-sm text-gray-400">
                       <thead className="text-xs text-gray-500 uppercase bg-[#0d1117] border-b border-[#30363d]">
                         <tr>
-                          <th className="px-6 py-3 font-semibold">Cliente</th>
-                          <th className="px-6 py-3 font-semibold">API Key</th>
-                          <th className="px-6 py-3 font-semibold text-center">Faturação (Stripe)</th>
+                          <th className="px-4 sm:px-6 py-3 font-semibold">Cliente</th>
+                          <th className="px-4 sm:px-6 py-3 font-semibold">API Key</th>
+                          <th className="px-4 sm:px-6 py-3 font-semibold text-center">Faturação</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#30363d]">
                         {clients.map((client) => (
                           <tr key={client.id} className="hover:bg-[#21262d] transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="text-white font-medium">{client.name}</div>
+                            <td className="px-4 sm:px-6 py-4">
+                              <div className="text-white font-medium truncate max-w-[150px] sm:max-w-[200px]">{client.name}</div>
                               <div className="text-[10px]">{client.plan} Plan</div>
                             </td>
-                            <td className="px-6 py-4">
-                              <span className="font-mono text-xs">{client.apiKey?.substring(0, 15)}...</span>
+                            <td className="px-4 sm:px-6 py-4">
+                              <span className="font-mono text-xs">{client.apiKey?.substring(0, 10)}...</span>
                             </td>
-                            <td className="px-6 py-4 text-center">
+                            <td className="px-4 sm:px-6 py-4 text-center">
                               <button 
                                 onClick={() => handleGenerateStripeLink(client.id)}
                                 disabled={billingLoading === client.id}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold disabled:opacity-50 whitespace-nowrap"
                               >
                                 {billingLoading === client.id ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
-                                {copyStatus[`stripe-${client.id}`] ? 'Link Copiado!' : 'Gerar Stripe Link'}
+                                <span className="hidden sm:inline">{copyStatus[`stripe-${client.id}`] ? 'Copiado!' : 'Gerar Link'}</span>
+                                <span className="sm:hidden">{copyStatus[`stripe-${client.id}`] ? 'Ok' : 'Link'}</span>
                               </button>
                             </td>
                           </tr>
@@ -1094,28 +1120,28 @@ export default function App() {
             <div className="space-y-6">
               <div className="flex justify-between items-center">
                 <div>
-                  <h2 className="text-2xl font-bold text-white">Análise da Operação Verisignum</h2>
-                  <p className="text-sm text-gray-400">Rastreabilidade e monitorização de média digital.</p>
+                  <h2 className="text-xl sm:text-2xl font-bold text-white">Operação Verisignum</h2>
+                  <p className="text-xs sm:text-sm text-gray-400">Rastreabilidade e monitorização digital.</p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-5 rounded-xl space-y-2">
                   <span className="text-xs font-semibold text-gray-400">Total de Verificações</span>
                   <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-white">{clientData?.usage_count || 0}</span>
+                    <span className="text-2xl sm:text-3xl font-extrabold text-white">{clientData?.usage_count || 0}</span>
                   </div>
                 </div>
-                <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
+                <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-5 rounded-xl space-y-2">
                   <span className="text-xs font-semibold text-gray-400">Ativos Criptografados</span>
                   <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-indigo-500">1,245</span>
+                    <span className="text-2xl sm:text-3xl font-extrabold text-indigo-500">1,245</span>
                   </div>
                 </div>
-                <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
+                <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-5 rounded-xl space-y-2">
                   <span className="text-xs font-semibold text-gray-400">Deepfakes Identificados</span>
                   <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-amber-500">23</span>
+                    <span className="text-2xl sm:text-3xl font-extrabold text-amber-500">23</span>
                   </div>
                 </div>
               </div>
@@ -1123,13 +1149,13 @@ export default function App() {
           )}
 
           {activeTab === 'shield' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+              <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl space-y-4 sm:space-y-6">
                 <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor C2PA
+                  <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                    <Shield className="text-indigo-500" /> VerisignumShield
                   </h3>
-                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis.</p>
+                  <p className="text-xs sm:text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis.</p>
                 </div>
 
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
@@ -1143,9 +1169,9 @@ export default function App() {
                         setShieldFile(e.dataTransfer.files[0]);
                       }
                     }}
-                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all bg-[#0d1117] ${isDraggingShield ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                    className={`border-2 border-dashed rounded-xl p-6 sm:p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all bg-[#0d1117] text-center ${isDraggingShield ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
                   >
-                    <FileCheck size={40} className={isDraggingShield ? "text-indigo-400" : "text-indigo-500"} />
+                    <FileCheck size={32} className={`sm:w-10 sm:h-10 ${isDraggingShield ? "text-indigo-400" : "text-indigo-500"}`} />
                     <input 
                       type="file" 
                       accept="image/*,video/*,audio/*,.avi,.pdf"
@@ -1153,36 +1179,38 @@ export default function App() {
                       className="hidden" 
                       id="shield-file-input"
                     />
-                    <label htmlFor="shield-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {shieldFile ? `Selecionado: ${shieldFile.name}` : 'Arraste o arquivo ou Clique aqui'}
+                    <label htmlFor="shield-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d] break-all">
+                      {shieldFile ? `Selecionado: ${shieldFile.name}` : 'Arraste arquivo ou Clique aqui'}
                     </label>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
                     <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
                   </div>
 
-                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia'}
+                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center items-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> <span className="truncate">{shieldStep}</span></> : 'Aplicar Criptografia'}
                   </button>
                 </form>
               </div>
 
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
-                  <h3 className="text-lg font-bold text-white mb-4">Certificado de Proveniência Verisignum</h3>
+              <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl overflow-hidden w-full">
+                  <h3 className="text-base sm:text-lg font-bold text-white mb-4">Certificado de Proveniência</h3>
                   {shieldResult ? (
                     <div className="space-y-4">
-                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
-                        <CheckCircle2 className="text-emerald-400" size={24} />
-                        <div><p className="text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
+                      <div className="p-3 sm:p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
+                        <CheckCircle2 className="text-emerald-400 shrink-0" size={24} />
+                        <div><p className="text-xs sm:text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
                       </div>
-                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto border border-[#30363d]">{shieldResult.manifest}</pre>
+                      <div className="w-full overflow-x-auto bg-[#0d1117] border border-[#30363d] rounded-lg">
+                         <pre className="p-3 text-[9px] sm:text-[10px] font-mono text-gray-300">{shieldResult.manifest}</pre>
+                      </div>
                     </div>
                   ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                      <Lock size={48} className="mb-4 text-gray-700" />
-                      <p className="text-sm">Aguardar Execução</p>
+                    <div className="h-48 sm:h-full flex flex-col items-center justify-center text-center p-6 sm:p-12 text-gray-500">
+                      <Lock size={32} className="sm:w-12 sm:h-12 mb-4 text-gray-700" />
+                      <p className="text-xs sm:text-sm">Aguardar Execução</p>
                     </div>
                   )}
               </div>
@@ -1190,14 +1218,14 @@ export default function App() {
           )}
 
           {activeTab === 'lens' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-8">
+              <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl space-y-4 sm:space-y-6 flex flex-col">
                  <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
+                  <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
                     <Eye className="text-indigo-500" /> VerisignumLens — Analisador
                   </h3>
                 </div>
-                <form onSubmit={handleLensScan} className="space-y-4 flex-1">
+                <form onSubmit={handleLensScan} className="space-y-4 flex-1 flex flex-col">
                   <div 
                     onDragOver={(e) => { e.preventDefault(); setIsDraggingLens(true); }}
                     onDragLeave={() => setIsDraggingLens(false)}
@@ -1208,9 +1236,9 @@ export default function App() {
                         setLensFile(e.dataTransfer.files[0]);
                       }
                     }}
-                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 h-full cursor-pointer transition-all bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                    className={`flex-1 min-h-[150px] border-2 border-dashed rounded-xl p-6 sm:p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all bg-[#0d1117] text-center ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
                   >
-                    <Activity size={40} className={isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"} />
+                    <Activity size={32} className={`sm:w-10 sm:h-10 ${isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"}`} />
                     <input 
                       type="file" 
                       accept="image/*,video/*,audio/*,.avi"
@@ -1218,39 +1246,39 @@ export default function App() {
                       className="hidden" 
                       id="lens-file-input" 
                     />
-                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste o arquivo ou Clique aqui'}
+                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d] break-all">
+                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste arquivo ou Clique aqui'}
                     </label>
                   </div>
-                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isScanning ? <><Loader2 className="animate-spin" size={16}/> {scanStep}</> : 'Executar Análise'}
+                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center items-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                    {isScanning ? <><Loader2 className="animate-spin" size={16}/> <span className="truncate">{scanStep}</span></> : 'Executar Análise'}
                   </button>
                 </form>
               </div>
 
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl flex flex-col justify-between">
+              <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl flex flex-col justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-4">Relatório de Anomalias de IA</h3>
+                    <h3 className="text-base sm:text-lg font-bold text-white mb-4">Relatório de Anomalias</h3>
                     {scanResult ? (
-                      <div className="space-y-6">
-                        <div className="flex justify-between items-center bg-[#0d1117] p-5 border border-[#30363d] rounded-xl">
-                          <div><p className="text-3xl font-extrabold text-white mt-1">{scanResult.score}% Humano</p></div>
-                          <div className={`p-3 rounded-xl ${scanResult.isAiGenerated ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                            {scanResult.isAiGenerated ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
+                      <div className="space-y-4 sm:space-y-6">
+                        <div className="flex justify-between items-center bg-[#0d1117] p-4 sm:p-5 border border-[#30363d] rounded-xl">
+                          <div><p className="text-2xl sm:text-3xl font-extrabold text-white mt-1">{scanResult.score}% Humano</p></div>
+                          <div className={`p-2.5 sm:p-3 rounded-xl ${scanResult.isAiGenerated ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
+                            {scanResult.isAiGenerated ? <AlertTriangle size={24} className="sm:w-8 sm:h-8" /> : <CheckCircle2 size={24} className="sm:w-8 sm:h-8" />}
                           </div>
                         </div>
                         <div className="space-y-2">
                           {scanResult.anomalies.map((anomaly: string, idx: number) => (
                              <div key={idx} className="flex gap-2.5 items-start bg-[#0d1117] p-3 border border-[#30363d] rounded-lg">
-                                <p className="text-xs text-gray-300">{anomaly}</p>
+                                <p className="text-[11px] sm:text-xs text-gray-300 leading-relaxed">{anomaly}</p>
                              </div>
                           ))}
                         </div>
                       </div>
                     ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                        <Activity size={48} className="mb-4 text-gray-700" />
-                        <p className="text-sm">Pronto para Diagnóstico</p>
+                      <div className="h-48 sm:h-full flex flex-col items-center justify-center text-center p-6 sm:p-12 text-gray-500">
+                        <Activity size={32} className="sm:w-12 sm:h-12 mb-4 text-gray-700" />
+                        <p className="text-xs sm:text-sm">Pronto para Diagnóstico</p>
                       </div>
                     )}
                   </div>
@@ -1260,7 +1288,7 @@ export default function App() {
                       onClick={handleDownloadPDF}
                       className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg p-3 text-sm flex items-center justify-center gap-2 border border-[#30363d] transition-all"
                     >
-                      <FileText size={16} /> Exportar Laudo Forense (PDF)
+                      <FileText size={16} /> Exportar Laudo (PDF)
                     </button>
                   )}
               </div>
@@ -1268,39 +1296,39 @@ export default function App() {
           )}
 
           {activeTab === 'api' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+            <div className="grid grid-cols-1 gap-6">
+              <div className="bg-[#161b22] border border-[#30363d] p-4 sm:p-6 rounded-xl space-y-4 sm:space-y-6 w-full overflow-hidden">
+                <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2">
                   <Key className="text-indigo-500" /> API Access Keys
                 </h3>
-                <p className="text-sm text-gray-400 mb-4">Utilize esta chave para assinar ativos através de sistemas externos de forma automatizada.</p>
-                <div className="flex justify-between items-center p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
-                  <span className="font-mono text-indigo-400 text-sm">{isKeyVisible ? clientData?.api_key : '••••••••••••••••••••••••••••••••'}</span>
-                  <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white text-xs bg-[#21262d] px-3 py-1.5 rounded hover:bg-[#30363d] transition-colors">Revelar</button>
+                <p className="text-xs sm:text-sm text-gray-400 mb-4">Utilize esta chave para assinar ativos de forma automatizada.</p>
+                <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 p-3 sm:p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
+                  <span className="font-mono text-indigo-400 text-[10px] sm:text-sm truncate w-full">{isKeyVisible ? clientData?.api_key : '••••••••••••••••••••••••••••••••'}</span>
+                  <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white text-xs bg-[#21262d] px-3 py-1.5 rounded hover:bg-[#30363d] transition-colors w-fit shrink-0">Revelar</button>
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'copilot' && (
-            <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[500px]">
-              <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2">
-                 <Sparkles size={18} className="text-indigo-400" />
-                 <h3 className="font-bold text-white text-sm">Verisignum Copilot</h3>
+            <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[60vh] sm:h-[500px]">
+              <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-[#30363d] flex items-center gap-2 shrink-0">
+                 <Sparkles size={16} className="sm:w-[18px] sm:h-[18px] text-indigo-400" />
+                 <h3 className="font-bold text-white text-xs sm:text-sm">Verisignum Copilot</h3>
               </div>
-              <div className="flex-1 p-6 space-y-4 overflow-y-auto bg-[#0d1117]">
+              <div className="flex-1 p-4 sm:p-6 space-y-4 overflow-y-auto bg-[#0d1117]">
                  {chatMessages.map((msg, index) => (
                     <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`p-4 text-sm rounded-xl ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#161b22] text-gray-200 border border-[#30363d]'}`}>
+                      <div className={`p-3 sm:p-4 text-xs sm:text-sm rounded-xl max-w-[85%] sm:max-w-[75%] ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#161b22] text-gray-200 border border-[#30363d]'}`}>
                         {msg.text}
                       </div>
                     </div>
                  ))}
-                 {isChatLoading && <Loader2 size={16} className="animate-spin text-indigo-400" />}
+                 {isChatLoading && <Loader2 size={16} className="animate-spin text-indigo-400 ml-2" />}
               </div>
-              <div className="p-4 border-t border-[#30363d] bg-[#161b22] flex gap-3">
-                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} placeholder="Faça uma pergunta sobre a norma C2PA..." className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none focus:border-indigo-500" />
-                 <button onClick={sendMessageToGemini} className="bg-indigo-600 px-4 rounded-lg text-white hover:bg-indigo-700 transition-colors"><Send size={18}/></button>
+              <div className="p-3 sm:p-4 border-t border-[#30363d] bg-[#161b22] flex gap-2 sm:gap-3 shrink-0">
+                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} placeholder="Pergunte sobre C2PA..." className="flex-1 bg-[#0d1117] border border-[#30363d] p-2.5 sm:p-3 text-xs sm:text-sm text-white rounded-lg outline-none focus:border-indigo-500" />
+                 <button onClick={sendMessageToGemini} className="bg-indigo-600 px-3 sm:px-4 rounded-lg text-white hover:bg-indigo-700 transition-colors shrink-0"><Send size={16} className="sm:w-[18px] sm:h-[18px]"/></button>
               </div>
             </div>
           )}
