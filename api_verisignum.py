@@ -176,6 +176,74 @@ def send_welcome_email(client_email, client_name):
 class TrialRequest(BaseModel):
     tenant_id: str
 
+class CheckoutRequest(BaseModel):
+    tenant_id: str
+    price_id_fixo: str
+    price_id_variavel: str
+
+@app.post("/v1/billing/create-checkout-session")
+def create_checkout_session(req: CheckoutRequest, db: Session = Depends(get_db)):
+    cliente = db.query(Client).filter(Client.id == int(req.tenant_id)).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado")
+    
+    try:
+        checkout_session = stripe.checkout.Session.create(
+            payment_method_types=['card'],
+            line_items=[
+                {'price': req.price_id_fixo, 'quantity': 1},
+                {'price': req.price_id_variavel} # O Stripe não pede quantidade aqui porque é metered billing
+            ],
+            mode='subscription',
+            success_url='https://www.verisignumdigital.com/?payment=success',
+            cancel_url='https://www.verisignumdigital.com/?payment=cancelled',
+            metadata={
+                'tenant_id': str(req.tenant_id),
+                'client_name': cliente.name
+            }
+        )
+        return {"checkout_url": checkout_session.url}
+    except Exception as e:
+        logger.error(f"Erro Stripe: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/v1/billing/webhook")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.body()
+    sig_header = request.headers.get('Stripe-Signature')
+
+    if not sig_header or not ENDPOINT_SECRET:
+        return JSONResponse(content={"success": False, "detail": "Configuração ausente"}, status_code=400)
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, ENDPOINT_SECRET)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    if event['type'] == 'checkout.session.completed':
+        session = event['data']['object']
+        tenant_id = session.get('metadata', {}).get('tenant_id')
+        stripe_customer_id = session.get('customer')
+
+        if tenant_id:
+            cliente = db.query(Client).filter(Client.id == int(tenant_id)).first()
+            if cliente:
+                cliente.is_active = True
+                cliente.stripe_customer_id = stripe_customer_id
+                db.commit()
+                
+    elif event['type'] == 'invoice.payment_failed':
+        invoice = event['data']['object']
+        stripe_customer_id = invoice.get('customer')
+        cliente = db.query(Client).filter(Client.stripe_customer_id == stripe_customer_id).first()
+        if cliente:
+            cliente.is_active = False
+            db.commit()
+
+    return JSONResponse(content={"success": True}, status_code=200)
+
 @app.post("/v1/billing/start-trial")
 def start_free_trial(req: TrialRequest, db: Session = Depends(get_db)):
     """Liberta a plataforma por 48 horas sem exigir cartão de crédito"""
