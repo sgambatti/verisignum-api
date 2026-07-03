@@ -603,9 +603,14 @@ def fix_database(db: Session = Depends(get_db)):
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
     try:
-        db.query(Client).delete()
+        # Define o e-mail do admin que não deve ser apagado
+        admin_email = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
+        
+        # Apaga todos os clientes cujo e-mail seja diferente do admin
+        db.query(Client).filter(Client.email != admin_email).delete()
         db.commit()
-        return {"status": "Sucesso! O banco de dados foi completamente zerado."}
+        
+        return {"status": "Sucesso! O banco de dados foi limpo, mas a sua conta God Mode foi mantida intacta."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
