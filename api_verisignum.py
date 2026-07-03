@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, text, DateTime
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 
@@ -29,7 +29,7 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Verisignum API Master", version="3.0.0")
+app = FastAPI(title="Verisignum API Master", version="3.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -80,6 +80,7 @@ class Client(Base):
     usage_count = Column(Integer, default=0)
     is_active = Column(Boolean, default=False)
     stripe_customer_id = Column(String, nullable=True)
+    trial_ends_at = Column(DateTime, nullable=True) # NOVO: Relógio do Trial
 
 Base.metadata.create_all(bind=engine)
 
@@ -90,7 +91,7 @@ def get_db():
     finally:
         db.close()
 
-# --- 6. UTILITÁRIOS DE AUTENTICAÇÃO ---
+# --- 6. UTILITÁRIOS DE AUTENTICAÇÃO E RELÓGIO DE AREIA ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -114,12 +115,18 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
             raise credentials_exception
     except JWTError:
         raise credentials_exception
+        
     client = db.query(Client).filter(Client.email == email).first()
     if client is None:
         raise credentials_exception
+        
+    # NOVO: Verifica se o Trial expirou e expulsa o cliente automaticamente
+    if client.is_active and client.trial_ends_at and datetime.utcnow() > client.trial_ends_at:
+        client.is_active = False
+        db.commit()
+        
     return client
 
-# NOVO: Validação Exclusiva de Administrador (Role-Based Access Control)
 def get_admin_client(current_client: Client = Depends(get_current_client)):
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com") 
     if current_client.email != ADMIN_EMAIL:
@@ -141,7 +148,7 @@ def send_welcome_email(client_email, client_name):
         <p>Faça login no painel para acessar o <strong>VerisignumShield</strong>, explorar as análises forenses do <strong>VerisignumLens</strong> e consultar a documentação de integração para a sua equipe de TI.</p>
         
         <p style="margin-top: 25px; margin-bottom: 25px;">
-            <a href="https://verisignumdigital.com" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Acessar a Plataforma</a>
+            <a href="https://www.verisignumdigital.com" style="background-color: #4f46e5; color: #ffffff; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Acessar a Plataforma</a>
         </p>
         
         <p>Desejamos-lhe muito sucesso,<br><strong>A Equipe Verisignum</strong></p>
@@ -163,8 +170,31 @@ def send_welcome_email(client_email, client_name):
         logger.error(f"Erro ao enviar e-mail via Resend: {e}")
 
 # ==========================================
-# ROTAS DE AUTENTICAÇÃO B2B 
+# ROTAS DE AUTENTICAÇÃO E BILLING (COM TRIAL)
 # ==========================================
+
+class TrialRequest(BaseModel):
+    tenant_id: str
+
+@app.post("/v1/billing/start-trial")
+def start_free_trial(req: TrialRequest, db: Session = Depends(get_db)):
+    """Liberta a plataforma por 48 horas sem exigir cartão de crédito"""
+    client = db.query(Client).filter(Client.id == req.tenant_id).first()
+    if not client:
+        raise HTTPException(status_code=404, detail="Conta não encontrada")
+    
+    if client.is_active:
+        raise HTTPException(status_code=400, detail="A sua conta já está ativa.")
+        
+    if client.trial_ends_at:
+        raise HTTPException(status_code=400, detail="O seu período de testes já foi utilizado e expirou. Por favor, ative a assinatura.")
+        
+    # Ativa por 48 horas
+    client.is_active = True
+    client.trial_ends_at = datetime.utcnow() + timedelta(days=2)
+    db.commit()
+    
+    return {"message": "Trial ativado com sucesso", "expires_in_hours": 48}
 
 @app.post("/v1/auth/register", status_code=201)
 def register_client(name: str, email: str, password: str, db: Session = Depends(get_db)):
@@ -215,7 +245,7 @@ def read_users_me(current_client: Client = Depends(get_current_client)):
         "api_key": current_client.api_key,
         "usage_count": current_client.usage_count,
         "is_active": current_client.is_active,
-        "plan": "Ativo" if current_client.is_active else "Pendente"
+        "plan": "Trial (Testes)" if current_client.trial_ends_at else ("Ativo" if current_client.is_active else "Pendente")
     }
 
 # ==========================================
@@ -233,7 +263,7 @@ async def assinar_midia(
     if not current_client.is_active:
         raise HTTPException(
             status_code=402, 
-            detail="Assinatura pendente. Por favor, ative a sua licença para continuar a usar a API."
+            detail="Acesso bloqueado. Assinatura pendente ou período de testes expirado."
         )
 
     if file.filename.lower().endswith('.pdf') or file.content_type == 'application/pdf':
@@ -317,7 +347,7 @@ async def verificar_midia(
     if not current_client.is_active:
         raise HTTPException(
             status_code=402, 
-            detail="Assinatura pendente. Por favor, ative a sua licença para continuar."
+            detail="Acesso bloqueado. Assinatura pendente ou período de testes expirado."
         )
     
     caminho_temp = os.path.join(UPLOAD_DIR, f"lens_{file.filename}")
@@ -368,7 +398,6 @@ async def verificar_midia(
                     ]
                 }
             }
-
 
         # PASSO 2: HIVE AI (SE NÃO TIVER C2PA)
         hive_api_key = os.getenv("HIVE_API_KEY")
@@ -512,7 +541,6 @@ def setup_founder_account(password: str, db: Session = Depends(get_db)):
     """Rota secreta para criar a conta do dono sem passar pelo Stripe."""
     email = "contato@verisignumdigital.com"
     
-    # Verifica se a conta já existe
     cliente_existente = db.query(Client).filter(Client.email == email).first()
     if cliente_existente:
         cliente_existente.hashed_password = pwd_context.hash(password)
@@ -528,7 +556,7 @@ def setup_founder_account(password: str, db: Session = Depends(get_db)):
         email=email,
         hashed_password=pwd_context.hash(password),
         api_key=new_key,
-        is_active=True  # A conta nasce ativada, burlando o bloqueio da Stripe
+        is_active=True  
     )
     db.add(new_client)
     db.commit()
@@ -536,7 +564,6 @@ def setup_founder_account(password: str, db: Session = Depends(get_db)):
 
 @app.get("/v1/admin/clients")
 def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    """Rota RESTrita (Só o Admin): Busca todos os clientes registados na base de dados."""
     clients = db.query(Client).order_by(Client.id.desc()).all()
     return [
         {
@@ -545,14 +572,13 @@ def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Dep
             "email": c.email,
             "apiKey": c.api_key, 
             "usageCount": c.usage_count, 
-            "plan": "Enterprise" if c.stripe_customer_id else "Trial",
+            "plan": "Enterprise" if c.stripe_customer_id else ("Trial" if c.trial_ends_at else "Plano Base"),
             "status": "Ativo" if c.is_active else "Inativo"
         } for c in clients
     ]
 
 @app.post("/v1/admin/clients")
 def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    """Rota RESTrita (Só o Admin): Cria um novo cliente manualmente."""
     import uuid
     new_key = "vsg_live_" + uuid.uuid4().hex
     new_client = Client(name=name, api_key=new_key, is_active=False)
@@ -567,8 +593,9 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;")) # Adiciona coluna de Trial
         db.commit()
-        return {"status": "Banco de dados atualizado com sucesso! Colunas verificadas."}
+        return {"status": "Banco de dados atualizado com sucesso! Colunas de Trial verificadas."}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}

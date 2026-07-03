@@ -333,7 +333,6 @@ export default function App() {
          throw new Error(erroData.detail || 'Falha ao ativar período de teste.');
       }
       
-      // Recarrega os dados para libertar o ecrã do Dashboard
       const token = localStorage.getItem('access_token');
       if (token) await fetchDashboardData(token);
       
@@ -404,7 +403,6 @@ export default function App() {
 
       if (!response.ok) throw new Error('Falha na API');
       
-      // Recarrega a base de dados após criar
       fetchAdminClients();
       setNewClientName('');
       
