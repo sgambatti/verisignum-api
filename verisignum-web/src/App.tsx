@@ -222,33 +222,27 @@ export default function App() {
             throw new Error(error.detail || 'Erro ao criar conta.');
         }
         
-        const data = await res.json();
-        const newClientId = data.client_id;
+        // Login automático imediatamente após criar a conta
+        const formData = new URLSearchParams();
+        formData.append('username', authEmail);
+        formData.append('password', authPassword);
 
-        try {
-          const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
-
-          const billingRes = await fetch(RENDER_BILLING_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              tenant_id: newClientId.toString(),
-              price_id_fixo: selectedPlan.price_id_fixo,
-              price_id_variavel: selectedPlan.price_id_variavel
-            })
-          });
-
-          if (billingRes.ok) {
-             const billingData = await billingRes.json();
-             window.location.href = billingData.checkout_url; 
-             return; 
-          } else {
-             throw new Error("Falha na geração do link de pagamento.");
-          }
-        } catch (billingErr) {
-          setAuthMode('login');
-          setAuthError('Conta criada! O redirecionamento falhou, mas faça login para concluir a assinatura.');
+        const loginRes = await fetch(RENDER_AUTH_LOGIN_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData.toString()
+        });
+        
+        if (!loginRes.ok) {
+            setAuthMode('login');
+            throw new Error('Conta criada com sucesso! Por favor, faça o login.');
         }
+
+        const loginData = await loginRes.json();
+        localStorage.setItem('access_token', loginData.access_token);
+        setIsAuthenticated(true);
+        setIsInitialLoading(true);
+        fetchDashboardData(loginData.access_token); 
 
       } else {
         const formData = new URLSearchParams();
@@ -840,13 +834,13 @@ export default function App() {
             )}
 
             <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
-              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Avançar para Pagamento')}
+              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Avançar')}
             </button>
           </form>
 
           <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
             <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-              {authMode === 'login' ? 'Nova EdTech? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
+              {authMode === 'login' ? 'Novo usuário? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
             </button>
           </div>
         </div>
@@ -917,7 +911,7 @@ export default function App() {
               disabled={billingLoading !== null}
               className="w-full bg-[#1c2128] hover:bg-[#21262d] text-white border border-[#30363d] hover:border-indigo-500/50 font-semibold rounded-lg p-3.5 text-sm transition-all flex items-center justify-center gap-2"
             >
-              {billingLoading === 'trial' ? <Loader2 className="animate-spin" size={16} /> : 'Começar Teste de 48 Horas (Sem Cartão)'}
+              {billingLoading === 'trial' ? <Loader2 className="animate-spin" size={16} /> : 'Iniciar Trial de 2 dias'}
             </button>
           </div>
           
@@ -1018,7 +1012,7 @@ export default function App() {
 
         <div className="p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
-          {/* ABA ADMIN PROTEGIDA */}
+          {}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6">
               <div className="flex justify-between items-end">
