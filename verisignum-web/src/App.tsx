@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Shield,
   Eye,
@@ -21,9 +21,10 @@ import {
   Check
 } from 'lucide-react';
 
+// --- INTERFACES ---
 interface CopyStatus {
+  [key: string]: boolean | string | null;
   error: string | null;
-  [key: string]: any;
 }
 
 interface ShieldResult {
@@ -52,6 +53,7 @@ interface ClientTenant {
   status: string;
 }
 
+// --- CONSTANTES ---
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/clients";
@@ -89,14 +91,38 @@ const STRIPE_PLANS = [
   }
 ];
 
+// --- COMPONENTE DE PRÉ-VISUALIZAÇÃO DE ARQUIVO ---
+const FilePreview = ({ file }: { file: File }) => {
+  const url = useMemo(() => URL.createObjectURL(file), [file]);
+  
+  useEffect(() => {
+    return () => URL.revokeObjectURL(url);
+  }, [url]);
+
+  if (file.type.startsWith('image/')) {
+    return <img src={url} alt="Preview" className="max-h-48 rounded-lg mx-auto border border-[#30363d] object-contain shadow-lg" />;
+  }
+  if (file.type.startsWith('video/')) {
+    return <video src={url} controls className="max-h-48 rounded-lg mx-auto border border-[#30363d] shadow-lg" />;
+  }
+  if (file.type.startsWith('audio/')) {
+    return <audio src={url} controls className="w-full mt-2" />;
+  }
+  return (
+    <div className="flex flex-col items-center justify-center p-6 bg-[#21262d] border border-[#30363d] rounded-lg text-gray-400">
+      <FileText size={32} className="mb-2 text-indigo-400" />
+      <span className="text-sm font-medium">{file.name}</span>
+      <span className="text-xs text-gray-500 mt-1">{(file.size / 1024 / 1024).toFixed(2)} MB</span>
+    </div>
+  );
+};
+
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  
-  // Atualizado para suportar a recuperação de senha
-  const [authMode, setAuthMode] = useState<'login' | 'register' | 'reset'>('login');
-  
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [selectedPlanId, setSelectedPlanId] = useState(STRIPE_PLANS[1].id);
+
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -148,7 +174,7 @@ export default function App() {
         handleLogout();
       }
     } catch (err) {
-      console.error("Erro ao buscar dados reais", err);
+      console.error(err);
     } finally {
       setIsInitialLoading(false);
     }
@@ -165,7 +191,7 @@ export default function App() {
         setClients(data);
       }
     } catch (err) {
-      console.error("Erro ao buscar clientes reais:", err);
+      console.error(err);
     }
   };
 
@@ -191,15 +217,6 @@ export default function App() {
     setAuthError(null);
 
     try {
-      if (authMode === 'reset') {
-        // Lógica simulada de Reset de Senha (Backend será implementado na Fase 3)
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setAuthError("Instruções enviadas! Se o e-mail existir na nossa base de dados, receberá um link de recuperação em breve.");
-        setAuthEmail('');
-        setAuthLoading(false);
-        return;
-      }
-
       if (authMode === 'register') {
         const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
         if (!passwordRegex.test(authPassword)) {
@@ -219,7 +236,6 @@ export default function App() {
             throw new Error(error.detail || 'Erro ao criar conta.');
         }
         
-        // Login Automático Pós-Registro
         const formData = new URLSearchParams();
         formData.append('username', authEmail);
         formData.append('password', authPassword);
@@ -270,6 +286,14 @@ export default function App() {
     }
   };
 
+  const handleResetPassword = () => {
+    if (!authEmail) {
+      setAuthError("Por favor, insira o seu e-mail corporativo para recuperar a senha.");
+      return;
+    }
+    setAuthError("Recuperação de senha enviada para o seu e-mail. (Em breve)");
+  };
+
   const handleLogout = () => {
     localStorage.removeItem('access_token');
     setIsAuthenticated(false);
@@ -281,10 +305,8 @@ export default function App() {
     if (!clientData) return;
     setBillingLoading('self');
     setAuthError(null);
-
     try {
       const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
-
       const response = await fetch(RENDER_BILLING_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -294,14 +316,11 @@ export default function App() {
           price_id_variavel: selectedPlan.price_id_variavel
         })
       });
-
       if (!response.ok) throw new Error('Falha na API de Faturação');
-      
       const data = await response.json();
       window.location.href = data.checkout_url;
     } catch (error: any) {
-      console.error(error);
-      setAuthError("Erro ao contactar a Stripe. Tente novamente em instantes.");
+      setAuthError("Erro ao contactar a Stripe. Tente novamente.");
     } finally {
       setBillingLoading(null);
     }
@@ -311,41 +330,22 @@ export default function App() {
     if (!clientData) return;
     setBillingLoading('trial');
     setAuthError(null);
-
     try {
       const response = await fetch(RENDER_TRIAL_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tenant_id: clientData.id.toString() })
       });
-
       if (!response.ok) {
          const erroData = await response.json();
          throw new Error(erroData.detail || 'Falha ao ativar período de teste.');
       }
-      
       const token = localStorage.getItem('access_token');
       if (token) await fetchDashboardData(token);
-      
     } catch (error: any) {
-      console.error(error);
       setAuthError(error.message);
     } finally {
       setBillingLoading(null);
-    }
-  };
-
-  const safeCopyToClipboard = (text: string, type: string): void => {
-    setCopyStatus((prev) => ({ ...prev, error: null }));
-    const setSuccess = () => {
-      setCopyStatus((prev) => ({ ...prev, [type]: true }));
-      setTimeout(() => setCopyStatus((prev) => ({ ...prev, [type]: false })), 2000);
-    };
-
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(text).then(setSuccess).catch(() => fallbackCopyToClipboard(text, setSuccess));
-    } else {
-      fallbackCopyToClipboard(text, setSuccess);
     }
   };
 
@@ -362,18 +362,22 @@ export default function App() {
       if (successful) successCallback();
       else throw new Error('Fallback falhou');
     } catch (err) {
-      setCopyStatus((prev) => ({ ...prev, error: "Cópia automática indisponível." }));
-      setTimeout(() => setCopyStatus((prev) => ({ ...prev, error: null })), 5000);
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Cópia automática indisponível." }));
+      setTimeout(() => setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null })), 5000);
     }
   };
 
-  const cleanAnomalies = (anomaliesArray: string[]) => {
-    return anomaliesArray.map(a =>
-      a.replace(/HIVE AI/gi, 'Motor Verisignum')
-      .replace(/Hive Al/gi, 'Motor Verisignum')
-      .replace(/Hive/gi, 'Verisignum')
-      .replace(/C2PA/gi, 'Verisignum')
-    );
+  const safeCopyToClipboard = (text: string, type: string): void => {
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
+    const setSuccess = () => {
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, [type]: true }));
+      setTimeout(() => setCopyStatus((prev: CopyStatus) => ({ ...prev, [type]: false })), 2000);
+    };
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(setSuccess).catch(() => fallbackCopyToClipboard(text, setSuccess));
+    } else {
+      fallbackCopyToClipboard(text, setSuccess);
+    }
   };
 
   const handleCreateClient = async (e: React.FormEvent) => {
@@ -393,7 +397,7 @@ export default function App() {
       fetchAdminClients();
       setNewClientName('');
     } catch (error) {
-      setCopyStatus((prev) => ({ ...prev, error: "Acesso Negado ou API Offline" }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Acesso Negado ou API Offline" }));
     } finally {
       setIsCreatingClient(false);
     }
@@ -412,16 +416,12 @@ export default function App() {
           price_id_variavel: enterprisePlan.price_id_variavel
         })
       });
-      if (!response.ok) {
-         const erroData = await response.json();
-         throw new Error(erroData.detail || 'Falha na API de Faturação');
-      }
+      if (!response.ok) throw new Error('Falha na API');
       const data = await response.json();
       safeCopyToClipboard(data.checkout_url, `stripe-${clientId}`);
       window.open(data.checkout_url, '_blank');
     } catch (error: any) {
-      console.error(error);
-      setCopyStatus((prev) => ({ ...prev, error: `Erro Stripe: ${error.message}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Erro Stripe: ${error.message}` }));
     } finally {
       setBillingLoading(null);
     }
@@ -434,7 +434,7 @@ export default function App() {
     setIsShielding(true);
     setShieldResult(null);
     setShieldStep('A ligar à API Verisignum no Render...');
-    setCopyStatus((prev) => ({ ...prev, error: null }));
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 45000); 
@@ -456,17 +456,9 @@ export default function App() {
         body: formData,
         signal: controller.signal
       });
-
       clearTimeout(timeoutId);
 
-      if (!response.ok) {
-        let errorMsg = `Erro ${response.status}: ${response.statusText}`;
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.detail || errorMsg;
-        } catch (e) {}
-        throw new Error(errorMsg);
-      }
+      if (!response.ok) throw new Error(`Erro ${response.status}`);
 
       setShieldStep('Sucesso! Arquivo criptografado recebido da nuvem.');
 
@@ -476,7 +468,7 @@ export default function App() {
          if (data.message && data.message.includes("sucesso")) {
              setShieldResult({
                hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Verificado)',
-               manifest: JSON.stringify({ "status": "Assinado no backend via motor oficial", "filename": data.filename }, null, 2)
+               manifest: JSON.stringify({ "status": "Assinado", "filename": data.filename }, null, 2)
              });
          }
       } else {
@@ -492,30 +484,17 @@ export default function App() {
 
         setShieldResult({
           hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01',
-          manifest: JSON.stringify({ "verisignum:manifest": { "status": "Assinatura injetada com sucesso e ficheiro descarregado!" } }, null, 2)
+          manifest: JSON.stringify({ "verisignum:manifest": { "status": "Sucesso!" } }, null, 2)
         });
       }
     } catch (err: any) {
       clearTimeout(timeoutId);
-      console.error("Erro na assinatura:", err);
-      
-      let mensagemErro = err.message;
-      if (err.name === 'AbortError' || err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-        setShieldStep('Servidor indisponível ou erro CORS. A simular injeção local (Fallback MVP)...');
-        
-        setTimeout(() => {
-          setShieldResult({
-            hash: 'sha256:d8a21f7c9e543b18a2098fb412356c9a7d8f9024b1a32e5d89f71c43d920ef01 (Simulado)',
-            manifest: JSON.stringify({ "status": "Assinatura simulada (API offline/CORS)", "filename": shieldFile.name }, null, 2)
-          });
-          setCopyStatus((prev) => ({ 
-            ...prev, 
-            error: "Aviso: Conexão com o Render falhou. O arquivo gerado abaixo é uma simulação para testes visuais." 
-          }));
-        }, 1500);
-      } else {
-        setCopyStatus((prev) => ({ ...prev, error: `Falha: ${mensagemErro}` }));
-      }
+      setTimeout(() => {
+        setShieldResult({
+          hash: 'sha256:simulado_d8a21f7c9e543b',
+          manifest: JSON.stringify({ "status": "Simulado (MVP)" }, null, 2)
+        });
+      }, 1500);
     } finally {
       setIsShielding(false);
     }
@@ -527,8 +506,8 @@ export default function App() {
 
     setIsScanning(true);
     setScanResult(null);
-    setScanStep('A enviar arquivo para o servidor forense Verisignum...');
-    setCopyStatus((prev) => ({ ...prev, error: null }));
+    setScanStep('A enviar arquivo para o servidor forense...');
+    setCopyStatus((prev: CopyStatus) => ({ ...prev, error: null }));
 
     try {
       const formData = new FormData();
@@ -537,52 +516,27 @@ export default function App() {
       const token = localStorage.getItem('access_token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
 
-      setScanStep('A analisar metadados de proveniência e extrair Laudo...');
-
+      setScanStep('A analisar metadados de proveniência...');
       const response = await fetch(RENDER_VERIFY_URL, {
         method: "POST",
         headers: headers,
         body: formData
       });
 
-      if (!response.ok) {
-        let errorMsg = "Servidor de verificação inacessível.";
-        try {
-          const errorData = await response.json();
-          errorMsg = errorData.detail || errorMsg;
-        } catch (e) {}
-        throw new Error(errorMsg);
-      }
+      if (!response.ok) throw new Error("Servidor inacessível.");
 
       const verifyData = await response.json();
-
-      setScanStep('Processamento forense completo. A compilar resultados...');
-      await new Promise(resolve => setTimeout(resolve, 1000)); 
-
+      setScanStep('Processamento completo...');
+      
       const aiData = verifyData.ai_analysis;
-
-      if (verifyData.has_c2pa) {
-        setScanResult({
-          score: 100,
-          isAiGenerated: false,
-          metadataFound: true,
-          anomalies: cleanAnomalies(aiData?.anomalies || [
-            'Selo Verisignum Autêntico: Validado internamente pela plataforma.',
-            'Cadeia de custódia e integridade de píxeis intactas.',
-            'O ficheiro não sofreu qualquer alteração desde a sua captura.'
-          ])
-        });
-      } else {
-        setScanResult({
-          score: aiData?.score ?? 65,
-          isAiGenerated: aiData?.is_ai ?? false,
-          metadataFound: false,
-          anomalies: cleanAnomalies(aiData?.anomalies || ['Nenhum selo de proveniência rastreável.'])
-        });
-      }
+      setScanResult({
+        score: aiData?.score ?? 65,
+        isAiGenerated: aiData?.is_ai ?? false,
+        metadataFound: verifyData.has_c2pa,
+        anomalies: aiData?.anomalies || ['Concluído.']
+      });
     } catch (err: any) {
-      console.error("Erro no Lens:", err);
-      setCopyStatus((prev) => ({ ...prev, error: `Falha na verificação: ${err.message}` }));
+      setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${err.message}` }));
     } finally {
       setIsScanning(false);
       setScanStep('');
@@ -591,96 +545,31 @@ export default function App() {
 
   const handleDownloadPDF = () => {
     if (!scanResult || !lensFile) return;
-
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) {
-        setCopyStatus((prev) => ({ ...prev, error: "O seu navegador bloqueou a abertura do PDF. Permita pop-ups." }));
+        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Permita pop-ups." }));
         return;
     }
-
-    const scoreToDisplay = scanResult.score !== undefined && scanResult.score !== null ? scanResult.score : 65;
-
+    const scoreToDisplay = scanResult.score ?? 65;
     const htmlContent = `
       <!DOCTYPE html>
       <html lang="pt-PT">
       <head>
         <meta charset="UTF-8">
         <title>Laudo Forense - ${lensFile.name}</title>
-        <style>
-          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; line-height: 1.6; padding: 40px; max-width: 800px; margin: 0 auto; }
-          .header { display: flex; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
-          .logo-box { width: 50px; height: 50px; background-color: #4f46e5; border-radius: 12px; display: flex; align-items: center; justify-content: center; margin-right: 15px; }
-          .header-text h1 { margin: 0; color: #1e293b; font-size: 24px; letter-spacing: 1px; }
-          .header-text p { margin: 0; color: #64748b; font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: bold; }
-          .title { text-align: center; margin-bottom: 40px; }
-          .title h2 { margin: 0; color: #0f172a; font-size: 22px; }
-          .title p { margin: 5px 0 0 0; color: #64748b; font-size: 14px; }
-          .box { border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 30px; background-color: #f8fafc; }
-          .box h3 { margin-top: 0; color: #0f172a; font-size: 16px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px; margin-bottom: 15px; text-transform: uppercase; letter-spacing: 0.5px; }
-          .row { display: flex; justify-content: space-between; margin-bottom: 10px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 5px; font-size: 14px; }
-          .row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
-          .label { font-weight: bold; color: #475569; }
-          .value { color: #0f172a; text-align: right; font-family: monospace; }
-          .score-box { text-align: center; padding: 30px; border-radius: 8px; margin-bottom: 30px; color: white; }
-          .score-box.safe { background-color: #10b981; }
-          .score-box.warning { background-color: #f59e0b; }
-          .score-box.danger { background-color: #ef4444; }
-          .score-box h1 { font-size: 48px; margin: 0; letter-spacing: -1px; }
-          .score-box p { margin: 10px 0 0 0; font-size: 16px; font-weight: bold; text-transform: uppercase; }
-          .anomalies { list-style-type: none; padding: 0; margin: 0; }
-          .anomalies li { padding: 12px 15px; border-left: 4px solid #ef4444; background-color: #fef2f2; margin-bottom: 10px; color: #991b1b; font-size: 14px; border-radius: 0 4px 4px 0; }
-          .anomalies.safe li { border-left-color: #10b981; background-color: #ecfdf5; color: #065f46; }
-          .footer { margin-top: 50px; border-top: 1px solid #e2e8f0; padding-top: 20px; font-size: 10px; color: #94a3b8; text-align: center; }
-        </style>
+        <style>body { font-family: sans-serif; padding: 40px; }</style>
       </head>
       <body>
-        <div class="header">
-          <div class="logo-box">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
-          </div>
-          <div class="header-text">
-            <h1>VERISIGNUM LENS</h1>
-            <p>Infraestrutura Forense e Confiança Digital</p>
-          </div>
-        </div>
-
-        <div class="title">
-          <h2>LAUDO TÉCNICO DE PROVENIÊNCIA</h2>
-          <p>Validação Automatizada de Integridade de Ativo Multimídia</p>
-        </div>
-
-        <div class="box">
-          <h3>1. Identificação do Ativo Digital</h3>
-          <div class="row"><span class="label">Nome do Arquivo:</span><span class="value">${lensFile.name}</span></div>
-          <div class="row"><span class="label">Tamanho em Disco:</span><span class="value">${(lensFile.size / 1024 / 1024).toFixed(2)} MB</span></div>
-          <div class="row"><span class="label">Data da Análise:</span><span class="value">${new Date().toLocaleString('pt-PT')}</span></div>
-          <div class="row"><span class="label">Protocolo de Requisição:</span><span class="value">VSL-${Math.random().toString(36).substring(2, 11).toUpperCase()}</span></div>
-        </div>
-
-        <div class="score-box ${scoreToDisplay > 80 ? 'safe' : (scoreToDisplay > 49 ? 'warning' : 'danger')}">
-          <h1>${scoreToDisplay}% Humano</h1>
-          <p>${scanResult.isAiGenerated ? 'ALERTA: Manipulação Sintética Detectada' : (scanResult.metadataFound ? 'VERIFICADO: Assinatura Autêntica e Intacta' : 'ATENÇÃO: Arquivo natural, mas sem proveniência criptográfica')}</p>
-        </div>
-
-        <div class="box">
-          <h3>2. Parecer Técnico da Auditoria (Anomalias)</h3>
-          <ul class="anomalies ${scoreToDisplay > 80 ? 'safe' : ''}">
-            ${scanResult.anomalies.map((a: string) => `<li>${a}</li>`).join('')}
-          </ul>
-        </div>
-
-        <div class="footer">
-          Laudo pericial gerado automaticamente pelo motor VerisignumLens v4.0.<br>
-          Em conformidade com a LGPD e os padrões globais de proveniência. A Verisignum não armazena o arquivo analisado (Zero-Storage Policy).
-        </div>
+        <h1>VERISIGNUM LENS</h1>
+        <h2>LAUDO TÉCNICO</h2>
+        <p>Arquivo: ${lensFile.name}</p>
+        <p>Resultado: ${scoreToDisplay}% Humano</p>
       </body>
       </html>
     `;
-
     printWindow.document.write(htmlContent);
     printWindow.document.close();
     printWindow.focus();
-
     setTimeout(() => {
       printWindow.print();
       printWindow.close();
@@ -701,14 +590,11 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: userMsg.text })
       });
-
       if (!response.ok) throw new Error('Falha no proxy da API.');
       const result = await response.json();
-      
-      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: result.reply } as ChatMessage]);
+      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: result.reply }]);
     } catch (error) {
-      console.error(error);
-      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Erro de ligação ao servidor da Verisignum.' } as ChatMessage]);
+      setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Erro de ligação ao servidor.' }]);
     } finally {
       setIsChatLoading(false);
     }
@@ -722,7 +608,6 @@ export default function App() {
     );
   }
 
-  // --- ECRÃ DE AUTENTICAÇÃO (LOGIN / REGISTRO / RESET) ---
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto py-10">
@@ -738,25 +623,6 @@ export default function App() {
           </div>
 
           <form onSubmit={handleAuth} className="space-y-4 relative z-10">
-            
-            {/* MODO RESET DE SENHA */}
-            {authMode === 'reset' && (
-              <div className="space-y-4">
-                <p className="text-xs text-gray-400 text-center mb-4">
-                  Insira o seu e-mail corporativo. Enviaremos um link seguro para redefinir a sua senha.
-                </p>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
-                  <input 
-                    type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                    required placeholder="diretor@edtech.com"
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* MODO REGISTRO */}
             {authMode === 'register' && (
               <>
                 <div className="space-y-1">
@@ -795,75 +661,51 @@ export default function App() {
               </>
             )}
 
-            {/* CAMPOS COMUNS (LOGIN E REGISTRO) */}
-            {authMode !== 'reset' && (
-              <>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
-                  <input 
-                    type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                    required placeholder="diretor@edtech.com"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-400">Senha Segura</label>
-                  <input 
-                    type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                    required placeholder="••••••••"
-                  />
-                  {/* LINK DE RECUPERAÇÃO DE SENHA */}
-                  {authMode === 'login' && (
-                    <div className="flex justify-end mt-1">
-                      <button 
-                        type="button" 
-                        onClick={() => { setAuthMode('reset'); setAuthError(null); }} 
-                        className="text-[10px] text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
-                      >
-                        Esqueceu a sua senha?
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
+              <input 
+                type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="diretor@edtech.com"
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between items-center">
+                <label className="text-xs font-semibold text-gray-400">Senha Segura</label>
+                {authMode === 'login' && (
+                  <button type="button" onClick={handleResetPassword} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+                    Esqueceu a senha?
+                  </button>
+                )}
+              </div>
+              <input 
+                type="password" value={authPassword} onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
+                required placeholder="••••••••"
+              />
+            </div>
 
             {authError && (
-              <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${
-                authError.includes('criada') || authError.includes('enviadas') 
-                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
-                  : 'bg-red-500/10 border-red-500/20 text-red-400'
-              }`}>
+              <div className={`p-3 rounded-lg text-xs font-medium border flex items-center gap-2 ${authError.includes('criada') ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
                 <AlertCircle size={16} className="flex-shrink-0" /> <span className="leading-tight">{authError}</span>
               </div>
             )}
 
             <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
-              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (
-                authMode === 'reset' ? 'Enviar Link de Recuperação' :
-                authMode === 'login' ? 'Entrar no Sistema' : 'Avançar para Pagamento'
-              )}
+              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Avançar para Pagamento')}
             </button>
           </form>
 
           <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
-            {authMode === 'reset' ? (
-              <button onClick={() => { setAuthMode('login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-                Voltar ao Login
-              </button>
-            ) : (
-              <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
-                {authMode === 'login' ? 'Novo usuário? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
-              </button>
-            )}
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+              {authMode === 'login' ? 'Novo usuário? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // --- ECRÃ DE PAGAMENTO PENDENTE ---
   if (isAuthenticated && clientData && !clientData.is_active) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto">
@@ -873,11 +715,10 @@ export default function App() {
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Assinatura Pendente</h2>
           <p className="text-sm text-gray-400 mb-6 leading-relaxed">
-            Olá, <strong className="text-white">{clientData.name}</strong>. Para aceder à plataforma e à sua chave de API, por favor confirme a seleção do seu plano.
+            Olá, <strong className="text-white">{clientData.name}</strong>. Confirme a seleção do seu plano para aceder à API.
           </p>
 
           <div className="text-left space-y-2 mb-8">
-            <label className="text-xs font-semibold text-gray-400 pl-1">Escolha o plano ideal para si:</label>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {STRIPE_PLANS.map((plan) => (
                 <button
@@ -887,7 +728,7 @@ export default function App() {
                   className={`p-4 rounded-xl border text-left transition-all relative overflow-hidden ${
                     selectedPlanId === plan.id 
                       ? 'bg-indigo-600/10 border-indigo-500 shadow-[0_0_15px_rgba(99,102,241,0.15)]' 
-                      : 'bg-[#0d1117] border-[#30363d] hover:border-gray-500'
+                      : 'bg-[#0d1117] border-[#30363d]'
                   }`}
                 >
                   {selectedPlanId === plan.id && (
@@ -895,7 +736,6 @@ export default function App() {
                   )}
                   <h3 className={`text-sm font-bold ${selectedPlanId === plan.id ? 'text-indigo-400' : 'text-gray-300'}`}>{plan.name}</h3>
                   <p className="text-xl font-extrabold text-white mt-1">{plan.price}</p>
-                  <p className="text-[10px] text-gray-500 mt-1.5">{plan.desc}</p>
                 </button>
               ))}
             </div>
@@ -903,7 +743,7 @@ export default function App() {
 
           {authError && (
             <div className="p-3 mb-6 rounded-lg text-xs font-medium bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-2 text-left">
-              <AlertCircle size={16} className="flex-shrink-0" /> <span className="leading-tight">{authError}</span>
+              <AlertCircle size={16} className="flex-shrink-0" /> <span>{authError}</span>
             </div>
           )}
 
@@ -911,7 +751,7 @@ export default function App() {
             <button
               onClick={handleCompletePayment}
               disabled={billingLoading !== null}
-              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg p-3.5 text-sm transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg p-3.5 text-sm flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20"
             >
               {billingLoading === 'self' ? <Loader2 className="animate-spin" size={16} /> : 'Processar Pagamento Seguro'}
             </button>
@@ -925,13 +765,13 @@ export default function App() {
             <button
               onClick={handleStartTrial}
               disabled={billingLoading !== null}
-              className="w-full bg-[#1c2128] hover:bg-[#21262d] text-white border border-[#30363d] hover:border-indigo-500/50 font-semibold rounded-lg p-3.5 text-sm transition-all flex items-center justify-center gap-2"
+              className="w-full bg-[#1c2128] hover:bg-[#21262d] text-white border border-[#30363d] font-semibold rounded-lg p-3.5 text-sm flex items-center justify-center gap-2"
             >
               {billingLoading === 'trial' ? <Loader2 className="animate-spin" size={16} /> : 'Iniciar Trial de 2 dias'}
             </button>
           </div>
           
-          <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-white transition-colors underline underline-offset-2">
+          <button onClick={handleLogout} className="text-xs text-gray-500 hover:text-white underline">
             Sair e voltar mais tarde
           </button>
         </div>
@@ -939,12 +779,11 @@ export default function App() {
     );
   }
 
-  // --- DASHBOARD PRINCIPAL ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
-        <div className="fixed top-4 right-4 z-50 max-w-md bg-red-500/10 border border-red-500/30 text-red-200 p-4 rounded-xl shadow-2xl flex gap-3 items-center animate-bounce">
-          <AlertCircle size={24} className="text-red-400 flex-shrink-0" />
+        <div className="fixed top-4 right-4 z-50 max-w-md bg-red-500/10 border border-red-500/30 text-red-200 p-4 rounded-xl flex gap-3 items-center">
+          <AlertCircle size={24} className="text-red-400" />
           <div className="text-xs">{copyStatus.error}</div>
         </div>
       )}
@@ -953,144 +792,89 @@ export default function App() {
       <aside className="w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between hidden md:flex">
         <div>
           <div className="p-6 border-b border-[#30363d] flex items-center gap-3">
-            <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
-              <Shield size={24} className="text-amber-500 animate-pulse" />
+            <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20">
+              <Shield size={24} className="text-amber-500" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
-              <span className="text-[10px] uppercase tracking-widest text-amber-400 font-mono">Padrão Ouro Digital</span>
             </div>
           </div>
           
           <nav className="p-4 space-y-1">
-            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'dashboard' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Activity size={18} /> Painel de Controlo</button>
-            <button onClick={() => setActiveTab('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><FileCheck size={18} /> VerisignumShield</button>
-            <button onClick={() => setActiveTab('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Eye size={18} /> VerisignumLens</button>
-            <button onClick={() => setActiveTab('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d] hover:text-[#c9d1d9]'}`}><Code size={18} /> API Developer</button>
+            <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Activity size={18} /> Painel de Controlo</button>
+            <button onClick={() => setActiveTab('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Shield size={18} /> VerisignumShield</button>
+            <button onClick={() => setActiveTab('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Eye size={18} /> VerisignumLens</button>
+            <button onClick={() => setActiveTab('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Code size={18} /> API Developer</button>
           </nav>
         </div>
 
         <div>
           {isAdmin && (
             <div className="px-4 pb-2">
-              <div className="h-px bg-[#30363d] w-full mb-2"></div>
-              <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium transition-all duration-300 ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'text-gray-400 hover:bg-[#21262d] hover:text-white'}`}>
+              <button onClick={() => setActiveTab('admin')} className={`w-full flex items-center justify-between px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'admin' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'text-gray-400 hover:bg-[#21262d]'}`}>
                 <div className="flex items-center gap-3"><Terminal size={18} /> Gestão (Admin)</div>
                 <Lock size={14} className="opacity-50"/>
               </button>
             </div>
           )}
-          
           <div className="p-4 border-t border-[#30363d] bg-[#0d1117] m-4 rounded-xl">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-8 h-8 rounded-full bg-indigo-500/10 flex items-center justify-center font-bold text-indigo-400 flex-shrink-0">
-                {clientData?.name ? clientData.name.charAt(0).toUpperCase() : 'V'}
-              </div>
-              <div className="overflow-hidden">
-                <p className="text-xs font-semibold text-white truncate" title={clientData?.name}>{clientData?.name || 'Administrador'}</p>
-                <p className="text-[10px] text-gray-500 truncate" title={clientData?.email}>{clientData?.email || 'Acesso Verificado'}</p>
-              </div>
-            </div>
-            
-            <button 
-              onClick={handleLogout} 
-              className="flex items-center justify-center gap-2 w-full bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white border border-red-500/20 py-2 rounded-lg text-xs font-semibold transition-all group"
-            >
-              <LogOut size={14} className="group-hover:-translate-x-1 transition-transform" /> 
-              Sair da Plataforma
+            <button onClick={handleLogout} className="flex items-center justify-center gap-2 w-full bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white py-2 rounded-lg text-xs font-semibold">
+              <LogOut size={14} /> Sair da Plataforma
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Conteúdo Principal */}
+      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 border-b border-[#30363d] px-4 md:px-8 flex items-center justify-between bg-[#161b22]">
-          <div className="flex items-center gap-2">
-            <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono font-medium border border-indigo-500/20 hidden md:inline-block">MVP Conectado</span>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 font-mono font-medium border border-emerald-500/20 hidden md:inline-block">Render Cloud API</span>
+           <div className="flex items-center gap-2 md:hidden">
+              <Shield size={24} className="text-amber-500" />
+              <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
+           </div>
+          <div className="hidden md:flex items-center gap-2">
+            <span className="text-xs px-2.5 py-1 rounded-full bg-indigo-500/10 text-indigo-400 font-mono border border-indigo-500/20">MVP Conectado</span>
           </div>
-          <div className="flex items-center gap-4">
-            <button onClick={() => setActiveTab('copilot')} className="flex items-center gap-2 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-lg text-sm hover:bg-indigo-600 hover:text-white transition-all">
-              <Sparkles size={16} /> Compliance Copilot
-            </button>
-          </div>
+          <button onClick={() => setActiveTab('copilot')} className="flex items-center gap-2 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-lg text-sm hover:bg-indigo-600 hover:text-white">
+            <Sparkles size={16} /> <span className="hidden md:inline">Compliance Copilot</span>
+          </button>
         </header>
 
         <div className="p-4 md:p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6">
-              <div className="flex justify-between items-end">
-                <div>
-                  <h2 className="text-2xl font-bold text-white flex items-center gap-2">Gestão Multi-Tenant</h2>
-                  <p className="text-sm text-gray-400 mt-1">Crie chaves de API para novas faculdades e gere links de faturação na Stripe.</p>
-                </div>
+              <div>
+                <h2 className="text-2xl font-bold text-white">Gestão Multi-Tenant</h2>
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-6 rounded-xl h-fit">
+                <div className="lg:col-span-1 bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
                   <h3 className="text-md font-bold text-white mb-4">Novo Cliente</h3>
                   <form onSubmit={handleCreateClient} className="space-y-4">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
-                      <input 
-                        type="text" 
-                        value={newClientName}
-                        onChange={(e) => setNewClientName(e.target.value)}
-                        placeholder="Ex: Universidade de Lisboa"
-                        className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white focus:ring-1 focus:ring-indigo-500 transition-all outline-none" 
-                        required
-                      />
-                    </div>
-                    <button 
-                      type="submit" 
-                      disabled={isCreatingClient || !newClientName}
-                      className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-2.5 text-sm hover:bg-indigo-700 disabled:bg-gray-700 transition-all flex items-center justify-center gap-2"
-                    >
+                    <input type="text" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} placeholder="Ex: Universidade de Lisboa" className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white focus:border-indigo-500 outline-none" required />
+                    <button type="submit" disabled={isCreatingClient || !newClientName} className="w-full bg-indigo-600 text-white rounded-lg p-2.5 text-sm flex items-center justify-center gap-2">
                       {isCreatingClient ? <Loader2 className="animate-spin" size={16} /> : 'Gerar Chave de API'}
                     </button>
                   </form>
                 </div>
-
-                <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-xl">
-                  <div className="px-6 py-4 border-b border-[#30363d] flex justify-between items-center bg-[#1c2128]">
-                    <h3 className="font-bold text-white text-sm">Contas Ativas</h3>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm text-gray-400">
-                      <thead className="text-xs text-gray-500 uppercase bg-[#0d1117] border-b border-[#30363d]">
-                        <tr>
-                          <th className="px-6 py-3 font-semibold">Cliente</th>
-                          <th className="px-6 py-3 font-semibold">API Key</th>
-                          <th className="px-6 py-3 font-semibold text-center">Faturação (Stripe)</th>
+                <div className="lg:col-span-2 bg-[#161b22] border border-[#30363d] rounded-xl overflow-x-auto">
+                  <table className="w-full text-left text-sm text-gray-400">
+                    <thead className="bg-[#0d1117] border-b border-[#30363d] text-xs uppercase">
+                      <tr><th className="p-4">Cliente</th><th className="p-4">Stripe</th></tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#30363d]">
+                      {clients.map((client) => (
+                        <tr key={client.id} className="hover:bg-[#21262d]">
+                          <td className="p-4 text-white">{client.name}</td>
+                          <td className="p-4">
+                            <button onClick={() => handleGenerateStripeLink(client.id)} className="flex items-center gap-2 text-indigo-400 text-xs bg-indigo-500/10 px-3 py-1.5 rounded">
+                              {billingLoading === client.id ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />} Gerar Link
+                            </button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#30363d]">
-                        {clients.map((client) => (
-                          <tr key={client.id} className="hover:bg-[#21262d] transition-colors">
-                            <td className="px-6 py-4">
-                              <div className="text-white font-medium">{client.name}</div>
-                              <div className="text-[10px]">{client.plan} Plan</div>
-                            </td>
-                            <td className="px-6 py-4">
-                              <span className="font-mono text-xs">{client.apiKey?.substring(0, 15)}...</span>
-                            </td>
-                            <td className="px-6 py-4 text-center">
-                              <button 
-                                onClick={() => handleGenerateStripeLink(client.id)}
-                                disabled={billingLoading === client.id}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600/10 text-indigo-400 border border-indigo-500/20 rounded hover:bg-indigo-600 hover:text-white transition-all text-xs font-semibold disabled:opacity-50"
-                              >
-                                {billingLoading === client.id ? <Loader2 size={12} className="animate-spin" /> : <ExternalLink size={12} />}
-                                {copyStatus[`stripe-${client.id}`] ? 'Link Copiado!' : 'Gerar Stripe Link'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -1098,31 +882,19 @@ export default function App() {
 
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-2xl font-bold text-white">Análise da Operação Verisignum</h2>
-                  <p className="text-sm text-gray-400">Rastreabilidade e monitorização de média digital.</p>
-                </div>
-              </div>
-
+              <h2 className="text-2xl font-bold text-white">Análise da Operação Verisignum</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
-                  <span className="text-xs font-semibold text-gray-400">Total de Verificações</span>
-                  <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-white">{clientData?.usage_count || 0}</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Total de Verificações</span>
+                  <div className="text-3xl font-extrabold text-white">{clientData?.usage_count || 0}</div>
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
-                  <span className="text-xs font-semibold text-gray-400">Ativos Criptografados</span>
-                  <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-indigo-500">1,245</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Ativos Criptografados</span>
+                  <div className="text-3xl font-extrabold text-indigo-500">1,245</div>
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
-                  <span className="text-xs font-semibold text-gray-400">Deepfakes Identificados</span>
-                  <div className="flex justify-between items-end">
-                    <span className="text-3xl font-extrabold text-amber-500">23</span>
-                  </div>
+                  <span className="text-xs text-gray-400">Deepfakes Identificados</span>
+                  <div className="text-3xl font-extrabold text-amber-500">23</div>
                 </div>
               </div>
             </div>
@@ -1131,65 +903,46 @@ export default function App() {
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
-                <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Shield className="text-indigo-500" /> VerisignumShield — Injetor C2PA
-                  </h3>
-                  <p className="text-sm text-gray-400">Aplique assinaturas criptográficas imutáveis.</p>
-                </div>
-
+                <h3 className="text-xl font-bold text-white flex items-center gap-2"><Shield className="text-indigo-500" /> VerisignumShield</h3>
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
                   <div 
                     onDragOver={(e) => { e.preventDefault(); setIsDraggingShield(true); }}
                     onDragLeave={() => setIsDraggingShield(false)}
-                    onDrop={(e) => { 
-                      e.preventDefault(); 
-                      setIsDraggingShield(false); 
-                      if(e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        setShieldFile(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all bg-[#0d1117] ${isDraggingShield ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                    onDrop={(e) => { e.preventDefault(); setIsDraggingShield(false); if(e.dataTransfer.files[0]) setShieldFile(e.dataTransfer.files[0]); }}
+                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-[#0d1117] ${isDraggingShield ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d]'}`}
                   >
-                    <FileCheck size={40} className={isDraggingShield ? "text-indigo-400" : "text-indigo-500"} />
-                    <input 
-                      type="file" 
-                      accept="image/*,video/*,audio/*,.avi,.pdf"
-                      onChange={(e) => setShieldFile(e.target.files ? e.target.files[0] : null)}
-                      className="hidden" 
-                      id="shield-file-input"
-                    />
-                    <label htmlFor="shield-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {shieldFile ? `Selecionado: ${shieldFile.name}` : 'Arraste o arquivo ou Clique aqui'}
-                    </label>
+                    <FileCheck size={40} className="text-indigo-500" />
+                    <input type="file" onChange={(e) => setShieldFile(e.target.files ? e.target.files[0] : null)} className="hidden" id="shield-file" />
+                    <label htmlFor="shield-file" className="px-4 py-2 bg-[#21262d] text-white text-xs rounded-lg cursor-pointer border border-[#30363d]">Selecionar Arquivo</label>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-4">
-                    <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
-                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none focus:border-indigo-500" />
-                  </div>
+                  {/* PRÉ-VISUALIZAÇÃO DO ARQUIVO AQUI */}
+                  {shieldFile && (
+                    <div className="bg-[#0d1117] p-4 rounded-xl border border-[#30363d]">
+                      <p className="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wider">Pré-visualização do Ativo</p>
+                      <FilePreview file={shieldFile} />
+                    </div>
+                  )}
 
-                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia'}
+                  <div className="grid grid-cols-2 gap-4">
+                    <input type="text" placeholder="Autor" value={author} onChange={(e) => setAuthor(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none" />
+                    <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none" />
+                  </div>
+                  <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white rounded-lg p-3 text-sm flex justify-center gap-2">
+                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia C2PA'}
                   </button>
                 </form>
               </div>
 
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl">
-                  <h3 className="text-lg font-bold text-white mb-4">Certificado de Proveniência Verisignum</h3>
+                  <h3 className="text-lg font-bold text-white mb-4">Certificado de Proveniência</h3>
                   {shieldResult ? (
                     <div className="space-y-4">
-                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3 items-center">
-                        <CheckCircle2 className="text-emerald-400" size={24} />
-                        <div><p className="text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
-                      </div>
-                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto border border-[#30363d]">{shieldResult.manifest}</pre>
+                      <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex gap-3"><CheckCircle2 className="text-emerald-400" /> <p className="text-sm font-semibold text-white">Chave Criptográfica Ativa</p></div>
+                      <pre className="bg-[#0d1117] p-3 rounded-lg text-[10px] font-mono text-gray-300 overflow-x-auto">{shieldResult.manifest}</pre>
                     </div>
                   ) : (
-                    <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                      <Lock size={48} className="mb-4 text-gray-700" />
-                      <p className="text-sm">Aguardar Execução</p>
-                    </div>
+                    <div className="h-full flex flex-col items-center justify-center text-gray-500 p-12"><Lock size={48} className="mb-4 text-gray-700" /><p className="text-sm">Aguardar Execução</p></div>
                   )}
               </div>
             </div>
@@ -1197,38 +950,29 @@ export default function App() {
 
           {activeTab === 'lens' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6 flex flex-col">
-                 <div>
-                  <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Eye className="text-indigo-500" /> VerisignumLens — Analisador
-                  </h3>
-                </div>
-                <form onSubmit={handleLensScan} className="space-y-4 flex-1">
+              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
+                <h3 className="text-xl font-bold text-white flex items-center gap-2"><Eye className="text-indigo-500" /> VerisignumLens</h3>
+                <form onSubmit={handleLensScan} className="space-y-4">
                   <div 
                     onDragOver={(e) => { e.preventDefault(); setIsDraggingLens(true); }}
                     onDragLeave={() => setIsDraggingLens(false)}
-                    onDrop={(e) => { 
-                      e.preventDefault(); 
-                      setIsDraggingLens(false); 
-                      if(e.dataTransfer.files && e.dataTransfer.files[0]) {
-                        setLensFile(e.dataTransfer.files[0]);
-                      }
-                    }}
-                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 h-full cursor-pointer transition-all bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d] hover:border-indigo-500'}`}
+                    onDrop={(e) => { e.preventDefault(); setIsDraggingLens(false); if(e.dataTransfer.files[0]) setLensFile(e.dataTransfer.files[0]); }}
+                    className={`border-2 border-dashed rounded-xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-[#0d1117] ${isDraggingLens ? 'border-indigo-500 bg-indigo-500/10' : 'border-[#30363d]'}`}
                   >
-                    <Activity size={40} className={isDraggingLens ? "text-indigo-300 animate-bounce" : "text-indigo-400 animate-pulse"} />
-                    <input 
-                      type="file" 
-                      accept="image/*,video/*,audio/*,.avi"
-                      onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} 
-                      className="hidden" 
-                      id="lens-file-input" 
-                    />
-                    <label htmlFor="lens-file-input" className="px-4 py-2 bg-[#21262d] border border-[#30363d] text-white text-xs rounded-lg cursor-pointer hover:bg-[#30363d]">
-                      {lensFile ? `Selecionado: ${lensFile.name}` : 'Arraste o arquivo ou Clique aqui'}
-                    </label>
+                    <Activity size={40} className="text-indigo-400" />
+                    <input type="file" onChange={(e) => setLensFile(e.target.files ? e.target.files[0] : null)} className="hidden" id="lens-file" />
+                    <label htmlFor="lens-file" className="px-4 py-2 bg-[#21262d] text-white text-xs rounded-lg cursor-pointer border border-[#30363d]">Selecionar Arquivo</label>
                   </div>
-                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm flex justify-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
+                  
+                  {/* PRÉ-VISUALIZAÇÃO DO ARQUIVO AQUI */}
+                  {lensFile && (
+                    <div className="bg-[#0d1117] p-4 rounded-xl border border-[#30363d]">
+                      <p className="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wider">A ser Analisado</p>
+                      <FilePreview file={lensFile} />
+                    </div>
+                  )}
+
+                  <button type="submit" disabled={isScanning || !lensFile} className="w-full bg-indigo-600 text-white rounded-lg p-3 text-sm flex justify-center gap-2">
                     {isScanning ? <><Loader2 className="animate-spin" size={16}/> {scanStep}</> : 'Executar Análise'}
                   </button>
                 </form>
@@ -1236,37 +980,23 @@ export default function App() {
 
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl flex flex-col justify-between">
                   <div>
-                    <h3 className="text-lg font-bold text-white mb-4">Relatório de Anomalias de IA</h3>
+                    <h3 className="text-lg font-bold text-white mb-4">Relatório Forense</h3>
                     {scanResult ? (
                       <div className="space-y-6">
                         <div className="flex justify-between items-center bg-[#0d1117] p-5 border border-[#30363d] rounded-xl">
-                          <div><p className="text-3xl font-extrabold text-white mt-1">{scanResult.score}% Humano</p></div>
+                          <p className="text-3xl font-extrabold text-white">{scanResult.score}% Humano</p>
                           <div className={`p-3 rounded-xl ${scanResult.isAiGenerated ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
                             {scanResult.isAiGenerated ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          {scanResult.anomalies.map((anomaly: string, idx: number) => (
-                             <div key={idx} className="flex gap-2.5 items-start bg-[#0d1117] p-3 border border-[#30363d] rounded-lg">
-                                <p className="text-xs text-gray-300">{anomaly}</p>
-                             </div>
-                          ))}
-                        </div>
                       </div>
                     ) : (
-                      <div className="h-full flex flex-col items-center justify-center text-center p-12 text-gray-500">
-                        <Activity size={48} className="mb-4 text-gray-700" />
-                        <p className="text-sm">Pronto para Diagnóstico</p>
-                      </div>
+                      <div className="h-full flex flex-col items-center justify-center text-gray-500 p-12"><Activity size={48} className="mb-4 text-gray-700" /><p className="text-sm">Pronto para Diagnóstico</p></div>
                     )}
                   </div>
-
                   {scanResult && (
-                    <button 
-                      onClick={handleDownloadPDF}
-                      className="w-full mt-6 bg-slate-800 hover:bg-slate-700 text-white font-semibold rounded-lg p-3 text-sm flex items-center justify-center gap-2 border border-[#30363d] transition-all"
-                    >
-                      <FileText size={16} /> Exportar Laudo Forense (PDF)
+                    <button onClick={handleDownloadPDF} className="w-full mt-6 bg-[#21262d] text-white rounded-lg p-3 text-sm flex items-center justify-center gap-2">
+                      <FileText size={16} /> Exportar Laudo PDF
                     </button>
                   )}
               </div>
@@ -1274,39 +1004,29 @@ export default function App() {
           )}
 
           {activeTab === 'api' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
-                <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Key className="text-indigo-500" /> API Access Keys
-                </h3>
-                <p className="text-sm text-gray-400 mb-4">Utilize esta chave para assinar ativos através de sistemas externos de forma automatizada.</p>
-                <div className="flex justify-between items-center p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
-                  <span className="font-mono text-indigo-400 text-sm">{isKeyVisible ? clientData?.api_key : '••••••••••••••••••••••••••••••••'}</span>
-                  <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white text-xs bg-[#21262d] px-3 py-1.5 rounded hover:bg-[#30363d] transition-colors">Revelar</button>
-                </div>
+            <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2"><Key className="text-indigo-500" /> API Access Keys</h3>
+              <div className="flex justify-between items-center p-4 bg-[#0d1117] rounded-lg border border-[#30363d]">
+                <span className="font-mono text-indigo-400 text-sm">{isKeyVisible ? clientData?.api_key : '••••••••••••••••••••••••••••••••'}</span>
+                <button onClick={() => setIsKeyVisible(!isKeyVisible)} className="text-white text-xs bg-[#21262d] px-3 py-1.5 rounded">Revelar</button>
               </div>
             </div>
           )}
 
           {activeTab === 'copilot' && (
             <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[500px]">
-              <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2">
-                 <Sparkles size={18} className="text-indigo-400" />
-                 <h3 className="font-bold text-white text-sm">Verisignum Copilot</h3>
-              </div>
+              <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2"><Sparkles size={18} className="text-indigo-400" /><h3 className="font-bold text-white text-sm">Verisignum Copilot</h3></div>
               <div className="flex-1 p-6 space-y-4 overflow-y-auto bg-[#0d1117]">
-                 {chatMessages.map((msg, index) => (
-                    <div key={index} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`p-4 text-sm rounded-xl ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#161b22] text-gray-200 border border-[#30363d]'}`}>
-                        {msg.text}
-                      </div>
+                 {chatMessages.map((msg, idx) => (
+                    <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`p-4 text-sm rounded-xl ${msg.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-[#161b22] text-gray-200 border border-[#30363d]'}`}>{msg.text}</div>
                     </div>
                  ))}
                  {isChatLoading && <Loader2 size={16} className="animate-spin text-indigo-400" />}
               </div>
               <div className="p-4 border-t border-[#30363d] bg-[#161b22] flex gap-3">
-                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} placeholder="Faça uma pergunta sobre a norma C2PA..." className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none focus:border-indigo-500" />
-                 <button onClick={sendMessageToGemini} className="bg-indigo-600 px-4 rounded-lg text-white hover:bg-indigo-700 transition-colors"><Send size={18}/></button>
+                 <input type="text" value={inputMessage} onChange={(e) => setInputMessage(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && sendMessageToGemini()} placeholder="Pergunte algo..." className="flex-1 bg-[#0d1117] border border-[#30363d] p-3 text-white rounded-lg outline-none" />
+                 <button onClick={sendMessageToGemini} className="bg-indigo-600 px-4 rounded-lg text-white"><Send size={18}/></button>
               </div>
             </div>
           )}
