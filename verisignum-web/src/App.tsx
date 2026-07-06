@@ -1172,7 +1172,7 @@ export default function App() {
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
-                <h3 className="text-xl font-bold text-white flex items-center gap-2"><img src="/shield-logo.png" className="w-6 h-6 object-contain" alt="" /> VerisignumShield</h3>
+                <h3 className="text-xl font-bold text-white flex items-center gap-2"><img src="/logo.png" className="w-6 h-6 object-contain" alt="" /> VerisignumShield</h3>
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
                   <div 
                     onDragOver={(e) => { e.preventDefault(); setIsDraggingShield(true); }}
