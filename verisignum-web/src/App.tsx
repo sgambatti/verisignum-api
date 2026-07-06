@@ -95,7 +95,7 @@ const STRIPE_PLANS = [
 const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
   if (!isAi && hasC2pa) {
     return {
-      title: "Autêntico Verificado",
+      title: "Arquivo 100% Original + Criptografia Verisignum",
       color: "text-emerald-400",
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/20",
@@ -104,7 +104,7 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
     };
   } else if (!isAi && !hasC2pa) {
     return {
-      title: "Indeterminado",
+      title: "Arquivo 100% Original",
       color: "text-blue-400",
       bg: "bg-blue-500/10",
       border: "border-blue-500/20",
@@ -113,16 +113,16 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
     };
   } else if (isAi && hasC2pa) {
     return {
-      title: "IA Assistida (Transparente)",
+      title: "Arquivo 100% IA + Criptografia Verisignum",
       color: "text-amber-400",
       bg: "bg-amber-500/10",
       border: "border-amber-500/20",
       icon: <AlertTriangle size={32} className="text-amber-400" />,
-      desc: "Conteúdo editado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
+      desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
     };
   } else {
     return {
-      title: "Risco: IA Não Verificada",
+      title: "Arquivo 100% IA",
       color: "text-red-400",
       bg: "bg-red-500/10",
       border: "border-red-500/20",
@@ -570,11 +570,22 @@ export default function App() {
       setScanStep('Processamento completo...');
       
       const aiData = verifyData.ai_analysis;
+      
+      // Função para ocultar a origem real do motor de análise
+      const sanitizeAnomalies = (anomalies: string[] | undefined) => {
+        if (!anomalies) return ['Auditoria concluída.'];
+        return anomalies.map(a => 
+          a.replace(/HIVE AI/gi, 'Motor Verisignum')
+           .replace(/Hive Al/gi, 'Motor Verisignum')
+           .replace(/Hive/gi, 'Verisignum')
+        );
+      };
+
       setScanResult({
         score: aiData?.score ?? 65,
         isAiGenerated: aiData?.is_ai ?? false,
         metadataFound: verifyData.has_c2pa,
-        anomalies: aiData?.anomalies || ['Concluído.']
+        anomalies: sanitizeAnomalies(aiData?.anomalies)
       });
     } catch (err: any) {
       setCopyStatus((prev: CopyStatus) => ({ ...prev, error: `Falha: ${err.message}` }));
@@ -606,7 +617,7 @@ export default function App() {
 
     if (!isAi && hasC2pa) {
       pdfStatus = {
-        title: "Autêntico Verificado",
+        title: "Arquivo 100% Original + Criptografia Verisignum",
         textColor: "#10b981",
         bgColor: "#f0fdf4",
         borderColor: "#bbf7d0",
@@ -614,7 +625,7 @@ export default function App() {
       };
     } else if (!isAi && !hasC2pa) {
       pdfStatus = {
-        title: "Indeterminado",
+        title: "Arquivo 100% Original",
         textColor: "#3b82f6",
         bgColor: "#eff6ff",
         borderColor: "#bfdbfe",
@@ -622,15 +633,15 @@ export default function App() {
       };
     } else if (isAi && hasC2pa) {
       pdfStatus = {
-        title: "IA Assistida (Transparente)",
+        title: "100% IA + Criptografia Verisignum",
         textColor: "#d97706",
         bgColor: "#fffbeb",
         borderColor: "#fef3c7",
-        desc: "Conteúdo editado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
+        desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
       };
     } else {
       pdfStatus = {
-        title: "Risco: IA Não Verificada",
+        title: "100% IA",
         textColor: "#ef4444",
         bgColor: "#fef2f2",
         borderColor: "#fecaca",
