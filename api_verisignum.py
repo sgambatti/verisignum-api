@@ -80,7 +80,7 @@ class Client(Base):
     usage_count = Column(Integer, default=0)
     is_active = Column(Boolean, default=False)
     stripe_customer_id = Column(String, nullable=True)
-    trial_ends_at = Column(DateTime, nullable=True) # NOVO: Relógio do Trial
+    trial_ends_at = Column(DateTime, nullable=True)
 
 Base.metadata.create_all(bind=engine)
 
@@ -120,7 +120,6 @@ async def get_current_client(token: str = Depends(oauth2_scheme), db: Session = 
     if client is None:
         raise credentials_exception
         
-    # NOVO: Verifica se o Trial expirou e expulsa o cliente automaticamente
     if client.is_active and client.trial_ends_at and datetime.utcnow() > client.trial_ends_at:
         client.is_active = False
         db.commit()
@@ -144,7 +143,7 @@ def send_welcome_email(client_email, client_name):
     <body style="font-family: sans-serif; color: #333; line-height: 1.6;">
         <h2>Olá, {client_name}!</h2>
         <p>A sua conta na plataforma <strong>Verisignum AI</strong> foi criada com sucesso.</p>
-        <p>A partir de agora, a sua instituição pode blindar fotografias, áudios, vídeos, arquivos e documentos em PDF contra fraudes e deepfakes através do nosso motor de proveniência criptográfica (C2PA).</p>
+        <p>A partir de agora, a sua instituição pode blindar fotografias, áudios, vídeos, arquivos e documentos em PDF contra fraudes e deepfakes através do nosso motor de proveniência criptográfica (Verisignum).</p>
         <p>Faça login no painel para acessar o <strong>VerisignumShield</strong>, explorar as análises forenses do <strong>VerisignumLens</strong> e consultar a documentação de integração para a sua equipe de TI.</p>
         
         <p style="margin-top: 25px; margin-bottom: 25px;">
@@ -192,7 +191,7 @@ def create_checkout_session(req: CheckoutRequest, db: Session = Depends(get_db))
             payment_method_types=['card'],
             line_items=[
                 {'price': req.price_id_fixo, 'quantity': 1},
-                {'price': req.price_id_variavel} # O Stripe não pede quantidade aqui porque é metered billing
+                {'price': req.price_id_variavel}
             ],
             mode='subscription',
             success_url='https://www.verisignumdigital.com/?payment=success',
@@ -246,7 +245,6 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/v1/billing/start-trial")
 def start_free_trial(req: TrialRequest, db: Session = Depends(get_db)):
-    """Liberta a plataforma por 48 horas sem exigir cartão de crédito"""
     client = db.query(Client).filter(Client.id == req.tenant_id).first()
     if not client:
         raise HTTPException(status_code=404, detail="Conta não encontrada")
@@ -257,7 +255,6 @@ def start_free_trial(req: TrialRequest, db: Session = Depends(get_db)):
     if client.trial_ends_at:
         raise HTTPException(status_code=400, detail="O seu período de testes já foi utilizado e expirou. Por favor, ative a assinatura.")
         
-    # Ativa por 48 horas
     client.is_active = True
     client.trial_ends_at = datetime.utcnow() + timedelta(days=2)
     db.commit()
@@ -317,7 +314,7 @@ def read_users_me(current_client: Client = Depends(get_current_client)):
     }
 
 # ==========================================
-# ROTAS DO VERISIGNUM CORE (SHIELD & C2PA)
+# ROTAS DO VERISIGNUM CORE (SHIELD & LENS)
 # ==========================================
 
 @app.post("/v1/shield/sign")
@@ -381,7 +378,7 @@ async def assinar_midia(
             "--force"
         ]
         
-        logger.info("Executando c2patool com o motor de PKI embutido nativo...")
+        logger.info("Executando motor de PKI embutido nativo...")
         result = subprocess.run(cmd, capture_output=True, text=True)
         
         if os.path.exists(caminho_manifesto):
@@ -396,15 +393,11 @@ async def assinar_midia(
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=nome_saida)
 
     except Exception as e:
-        logger.error(f"Erro C2PA: {str(e)}")
+        logger.error(f"Erro Verisignum: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Erro no motor de assinatura: {str(e)}")
     finally:
         if os.path.exists(caminho_entrada):
             os.remove(caminho_entrada)
-
-# ==========================================
-# ROTAS DO VERISIGNUM LENS (C2PA + HIVE AI)
-# ==========================================
 
 @app.post("/v1/lens/verify")
 async def verificar_midia(
@@ -424,22 +417,22 @@ async def verificar_midia(
             shutil.copyfileobj(file.file, buffer)
 
         # PASSO 1: INSPEÇÃO CRIPTOGRÁFICA (O ELO COM O SHIELD)
-        has_c2pa = False
+        has_verisignum = False
         author_name = "Verisignum Trust Network"
         
         try:
-            cmd_c2pa = ["c2patool", caminho_temp]
-            result_c2pa = subprocess.run(cmd_c2pa, capture_output=True, text=True)
+            cmd_verisignum = ["c2patool", caminho_temp]
+            result_verisignum = subprocess.run(cmd_verisignum, capture_output=True, text=True)
             
-            if result_c2pa.returncode == 0 and result_c2pa.stdout.strip():
+            if result_verisignum.returncode == 0 and result_verisignum.stdout.strip():
                 try:
-                    c2pa_data = json.loads(result_c2pa.stdout)
-                    if "active_manifest" in c2pa_data or "manifests" in c2pa_data:
-                        has_c2pa = True
+                    verisignum_data = json.loads(result_verisignum.stdout)
+                    if "active_manifest" in verisignum_data or "manifests" in verisignum_data:
+                        has_verisignum = True
                         
-                        active_manifest = c2pa_data.get("active_manifest")
+                        active_manifest = verisignum_data.get("active_manifest")
                         if active_manifest:
-                            manifest_obj = c2pa_data.get("manifests", {}).get(active_manifest, {})
+                            manifest_obj = verisignum_data.get("manifests", {}).get(active_manifest, {})
                             assertions = manifest_obj.get("assertions", [])
                             for ass in assertions:
                                 if ass.get("label") == "stds.schema-org.CreativeWork":
@@ -449,9 +442,9 @@ async def verificar_midia(
                 except json.JSONDecodeError:
                     pass
         except Exception as e:
-            logger.error(f"Lens: Erro ao tentar ler C2PA: {str(e)}")
+            logger.error(f"Lens: Erro ao tentar ler Verisignum: {str(e)}")
 
-        # PASSO 2: HIVE AI (AGORA RODA SEMPRE, MESMO QUE TENHA C2PA)
+        # PASSO 2: HIVE AI (AGORA RODA SEMPRE, MESMO QUE TENHA SIDO ASSINADO)
         hive_api_key = os.getenv("HIVE_API_KEY")
         
         final_score = 85
@@ -528,7 +521,7 @@ async def verificar_midia(
                 anomalies.append(f"A API Forense recusou o arquivo (Erro HTTP {response.status_code}).")
                 anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
-            # FALLBACK MOCK (Quando não há chave da Hive AI configurada)
+            # FALLBACK MOCK (Quando não há chave configurada)
             filename_lower = file.filename.lower()
             is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
             final_score = 15 if is_ai else 85
@@ -538,17 +531,17 @@ async def verificar_midia(
                 anomalies = ["Estrutura de dados aparentemente natural."]
 
         # PASSO 3: COMPILAR O LAUDO FINAL (A Magia da Matriz 2x2)
-        if has_c2pa:
-            anomalies.insert(0, f"Selo C2PA Autêntico: Validação criptográfica confirmada para o autor '{author_name}'.")
+        if has_verisignum:
+            anomalies.insert(0, f"Selo Verisignum Autêntico: Validação criptográfica confirmada para o autor '{author_name}'.")
 
         current_client.usage_count += 1
         db.commit()
         
         return {
-            "has_c2pa": has_c2pa, 
+            "has_verisignum": has_verisignum, 
             "ai_analysis": {
-                # Se tiver C2PA mas for IA, mostramos Score 100% de Autenticidade da Assinatura
-                "score": 100 if has_c2pa else final_score, 
+                # Se tiver a assinatura, mantemos score 100% de Autenticidade do Selo
+                "score": 100 if has_verisignum else final_score, 
                 "is_ai": is_ai,
                 "anomalies": anomalies
             }
@@ -561,7 +554,7 @@ async def verificar_midia(
             os.remove(caminho_temp)
 
 # ==========================================
-# ROTAS DE IA (COPILOT)
+# ROTAS DE IA (COPILOT) E ADMIN
 # ==========================================
 
 class ChatRequest(BaseModel):
@@ -574,7 +567,7 @@ async def copilot_chat(req: ChatRequest):
         raise HTTPException(status_code=500, detail="Chave API do Gemini não configurada no servidor.")
     
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
-    system_prompt = "Você é o Verisignum Compliance Copilot, um assistente técnico especializado em Proveniência Digital e norma C2PA."
+    system_prompt = "Você é o Verisignum Compliance Copilot, um assistente técnico especializado em Proveniência Digital e norma Verisignum."
     
     payload = {
         "contents": [{"parts": [{"text": req.message}]}],
@@ -590,13 +583,8 @@ async def copilot_chat(req: ChatRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erro na comunicação com a IA: {str(e)}")
 
-# ==========================================
-# ROTAS DE SISTEMA & ADMIN (MÁQUINA DO TEMPO)
-# ==========================================
-
 @app.post("/v1/admin/setup-founder")
 def setup_founder_account(password: str, db: Session = Depends(get_db)):
-    """Rota secreta para criar a conta do dono sem passar pelo Stripe."""
     email = "contato@verisignumdigital.com"
     
     cliente_existente = db.query(Client).filter(Client.email == email).first()
@@ -635,25 +623,15 @@ def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Dep
         } for c in clients
     ]
 
-@app.post("/v1/admin/clients")
-def create_admin_client(name: str, admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    import uuid
-    new_key = "vsg_live_" + uuid.uuid4().hex
-    new_client = Client(name=name, api_key=new_key, is_active=False)
-    db.add(new_client)
-    db.commit()
-    db.refresh(new_client)
-    return {"message": "Cliente criado!", "client_name": name, "api_key": new_key, "client_id": new_client.id}
-
 @app.get("/v1/system/fix-db")
 def fix_database(db: Session = Depends(get_db)):
     try:
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
-        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;")) # Adiciona coluna de Trial
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;"))
         db.commit()
-        return {"status": "Banco de dados atualizado com sucesso! Colunas de Trial verificadas."}
+        return {"status": "Banco de dados atualizado com sucesso!"}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
@@ -661,13 +639,9 @@ def fix_database(db: Session = Depends(get_db)):
 @app.delete("/v1/admin/reset-database")
 def reset_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
     try:
-        # Define o e-mail do admin que não deve ser apagado
         admin_email = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
-        
-        # Apaga todos os clientes cujo e-mail seja diferente do admin
         db.query(Client).filter(Client.email != admin_email).delete()
         db.commit()
-        
         return {"status": "Sucesso! O banco de dados foi limpo, mas a sua conta God Mode foi mantida intacta."}
     except Exception as e:
         db.rollback()

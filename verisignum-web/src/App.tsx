@@ -21,7 +21,6 @@ import {
   Check
 } from 'lucide-react';
 
-// --- INTERFACES ---
 interface CopyStatus {
   [key: string]: boolean | string | null;
   error: string | null;
@@ -53,7 +52,6 @@ interface ClientTenant {
   status: string;
 }
 
-// --- CONSTANTES ---
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/clients";
@@ -91,9 +89,8 @@ const STRIPE_PLANS = [
   }
 ];
 
-// --- HELPER: MATRIZ DE CONFIANÇA (IA VS C2PA) ---
-const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
-  if (!isAi && hasC2pa) {
+const getAuditStatus = (isAi: boolean, hasVerisignum: boolean) => {
+  if (!isAi && hasVerisignum) {
     return {
       title: "Arquivo 100% Original + Criptografia Verisignum",
       color: "text-emerald-400",
@@ -102,7 +99,7 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
       icon: <CheckCircle2 size={32} className="text-emerald-400" />,
       desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
     };
-  } else if (!isAi && !hasC2pa) {
+  } else if (!isAi && !hasVerisignum) {
     return {
       title: "Arquivo 100% Original",
       color: "text-blue-400",
@@ -111,9 +108,9 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
       icon: <AlertCircle size={32} className="text-blue-400" />,
       desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
     };
-  } else if (isAi && hasC2pa) {
+  } else if (isAi && hasVerisignum) {
     return {
-      title: "Arquivo 100% IA + Criptografia Verisignum",
+      title: "100% IA + Criptografia Verisignum",
       color: "text-amber-400",
       bg: "bg-amber-500/10",
       border: "border-amber-500/20",
@@ -122,7 +119,7 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
     };
   } else {
     return {
-      title: "Arquivo 100% IA",
+      title: "100% IA",
       color: "text-red-400",
       bg: "bg-red-500/10",
       border: "border-red-500/20",
@@ -132,7 +129,6 @@ const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
   }
 };
 
-// --- COMPONENTE DE PRÉ-VISUALIZAÇÃO DE ARQUIVO ---
 const FilePreview = ({ file }: { file: File }) => {
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   
@@ -571,7 +567,7 @@ export default function App() {
       
       const aiData = verifyData.ai_analysis;
       
-      // Função para ocultar a origem real do motor de análise
+      // Função MÁSCARA - Para o cliente final não saber do motor terceiro subjacente
       const sanitizeAnomalies = (anomalies: string[] | undefined) => {
         if (!anomalies) return ['Auditoria concluída.'];
         return anomalies.map(a => 
@@ -584,7 +580,7 @@ export default function App() {
       setScanResult({
         score: aiData?.score ?? 65,
         isAiGenerated: aiData?.is_ai ?? false,
-        metadataFound: verifyData.has_c2pa,
+        metadataFound: verifyData.has_verisignum,
         anomalies: sanitizeAnomalies(aiData?.anomalies)
       });
     } catch (err: any) {
@@ -605,7 +601,7 @@ export default function App() {
     }
 
     const isAi = scanResult.isAiGenerated;
-    const hasC2pa = scanResult.metadataFound;
+    const hasVerisignum = scanResult.metadataFound;
     
     let pdfStatus = {
       title: "",
@@ -615,7 +611,7 @@ export default function App() {
       desc: ""
     };
 
-    if (!isAi && hasC2pa) {
+    if (!isAi && hasVerisignum) {
       pdfStatus = {
         title: "Arquivo 100% Original + Criptografia Verisignum",
         textColor: "#10b981",
@@ -623,7 +619,7 @@ export default function App() {
         borderColor: "#bbf7d0",
         desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
       };
-    } else if (!isAi && !hasC2pa) {
+    } else if (!isAi && !hasVerisignum) {
       pdfStatus = {
         title: "Arquivo 100% Original",
         textColor: "#3b82f6",
@@ -631,7 +627,7 @@ export default function App() {
         borderColor: "#bfdbfe",
         desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
       };
-    } else if (isAi && hasC2pa) {
+    } else if (isAi && hasVerisignum) {
       pdfStatus = {
         title: "100% IA + Criptografia Verisignum",
         textColor: "#d97706",
@@ -729,7 +725,7 @@ export default function App() {
 
         <div class="footer">
           Laudo oficial automatizado pelo ecossistema VerisignumLens v4.2.<br>
-          Em total conformidade com o Regulamento Geral sobre a Proteção de Dados (RGPD) e as especificações globais da C2PA.<br>
+          Em total conformidade com o Regulamento Geral sobre a Proteção de Dados (RGPD) e as especificações globais da Verisignum.<br>
           A plataforma adota uma Política de Armazenamento Zero: os ficheiros não são salvos nos servidores após o diagnóstico.
         </div>
         
@@ -1096,7 +1092,7 @@ export default function App() {
                     <input type="text" placeholder="Organização" value={org} onChange={(e) => setOrg(e.target.value)} className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-2.5 text-sm text-white outline-none" />
                   </div>
                   <button type="submit" disabled={isShielding || !shieldFile} className="w-full bg-indigo-600 text-white rounded-lg p-3 text-sm flex justify-center gap-2">
-                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia C2PA'}
+                    {isShielding ? <><Loader2 className="animate-spin" size={16}/> {shieldStep}</> : 'Aplicar Criptografia Verisignum'}
                   </button>
                 </form>
               </div>
