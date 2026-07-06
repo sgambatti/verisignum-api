@@ -346,9 +346,16 @@ export default function App() {
       const response = await fetch(RENDER_RESET_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: authEmail })
+        body: JSON.stringify({ 
+          email: authEmail,
+          frontend_url: window.location.origin // <-- CORREÇÃO AQUI: Informa a URL atual do site
+        })
       });
-      if (!response.ok) throw new Error("Falha ao comunicar com o servidor.");
+      if (!response.ok) {
+        // Melhora a captura do erro para facilitar futuros diagnósticos
+        const errData = await response.json().catch(() => null);
+        throw new Error(errData?.detail || "Falha ao comunicar com o servidor.");
+      }
       setAuthError("Se o e-mail estiver registado, receberá as instruções em breve!");
     } catch (error: any) {
       setAuthError(error.message);
