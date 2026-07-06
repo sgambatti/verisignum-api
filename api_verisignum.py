@@ -410,15 +410,17 @@ async def copilot_chat(req: ChatRequest):
 @app.get("/v1/system/fix-db")
 def fix_database(db: Session = Depends(get_db)):
     try:
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS email VARCHAR UNIQUE;"))
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
+        db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;"))
+        # Adicione estas duas linhas abaixo para criar as novas colunas de reset de senha:
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS reset_token VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;"))
         db.commit()
-        return {"status": "Banco de dados atualizado com colunas de reset!"}
+        return {"status": "Banco de dados atualizado com sucesso!"}
     except Exception as e:
         db.rollback()
         return {"error": str(e)}
 
-@app.get("/v1/admin/clients")
-def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
-    clients = db.query(Client).order_by(Client.id.desc()).all()
-    return [{"id": str(c.id), "name": c.name, "email": c.email, "apiKey": c.api_key, "usageCount": c.usage_count, "plan": "Ativo" if c.stripe_customer_id else "Pendente", "status": "Ativo" if c.is_active else "Inativo"} for c in clients]
+@app.delete("/v1/admin/reset-database")
