@@ -451,23 +451,7 @@ async def verificar_midia(
         except Exception as e:
             logger.error(f"Lens: Erro ao tentar ler C2PA: {str(e)}")
 
-        if has_c2pa:
-            current_client.usage_count += 1
-            db.commit()
-            return {
-                "has_c2pa": True, 
-                "ai_analysis": {
-                    "score": 100,
-                    "is_ai": False,
-                    "anomalies": [
-                        f"Selo C2PA Autêntico: Validação criptográfica confirmada para o autor '{author_name}'.",
-                        "Cadeia de custódia validada: Os píxeis não sofreram alterações.",
-                        "A integridade forense deste arquivo está matematicamente comprovada."
-                    ]
-                }
-            }
-
-        # PASSO 2: HIVE AI (SE NÃO TIVER C2PA)
+        # PASSO 2: HIVE AI (AGORA RODA SEMPRE, MESMO QUE TENHA C2PA)
         hive_api_key = os.getenv("HIVE_API_KEY")
         
         final_score = 85
@@ -530,20 +514,21 @@ async def verificar_midia(
                         is_ai = False
 
                     if is_ai:
-                        anomalies.append(f"ALERTA HIVE AI: {ai_score*100:.1f}% de probabilidade de síntese artificial.")
+                        anomalies.append(f"ALERTA MOTOR VERISIGNUM: {ai_score*100:.1f}% de probabilidade de síntese artificial.")
                         if geradores_detectados:
                             anomalies.append(f"Assinatura do motor detetada: {', '.join(geradores_detectados).title()}.")
-                        anomalies.append("Artefatos sintéticos ou ruído de difusão detetados nos píxeis/áudio.")
+                        anomalies.append("Artefatos sintéticos ou ruído de difusão detetados nos píxeis.")
                     else:
-                        anomalies.append("HIVE AI: Nenhuma anomalia gerativa detetada no arquivo.")
+                        anomalies.append("MOTOR VERISIGNUM: Nenhuma anomalia gerativa detetada no arquivo.")
                         anomalies.append("A matriz de dados é consistente com uma gravação natural.")
                         
                 except Exception as parse_err:
-                    anomalies.append("Erro na formatação estrutural do laudo heurístico da Hive AI.")
+                    anomalies.append("Erro na formatação estrutural do laudo heurístico.")
             else:
-                anomalies.append(f"A API da Hive AI recusou o arquivo (Erro HTTP {response.status_code}).")
+                anomalies.append(f"A API Forense recusou o arquivo (Erro HTTP {response.status_code}).")
                 anomalies.append("Heurística Local Ativada (Fallback): A estrutura aparenta ser orgânica (85% Humano).")
         else:
+            # FALLBACK MOCK (Quando não há chave da Hive AI configurada)
             filename_lower = file.filename.lower()
             is_ai = 'fake' in filename_lower or 'ia' in filename_lower or 'sintetico' in filename_lower
             final_score = 15 if is_ai else 85
@@ -552,13 +537,18 @@ async def verificar_midia(
             else:
                 anomalies = ["Estrutura de dados aparentemente natural."]
 
+        # PASSO 3: COMPILAR O LAUDO FINAL (A Magia da Matriz 2x2)
+        if has_c2pa:
+            anomalies.insert(0, f"Selo C2PA Autêntico: Validação criptográfica confirmada para o autor '{author_name}'.")
+
         current_client.usage_count += 1
         db.commit()
         
         return {
-            "has_c2pa": False, 
+            "has_c2pa": has_c2pa, 
             "ai_analysis": {
-                "score": final_score,
+                # Se tiver C2PA mas for IA, mostramos Score 100% de Autenticidade da Assinatura
+                "score": 100 if has_c2pa else final_score, 
                 "is_ai": is_ai,
                 "anomalies": anomalies
             }
