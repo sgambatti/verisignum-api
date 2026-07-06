@@ -1062,7 +1062,7 @@ export default function App() {
         <div>
           <div className="p-6 border-b border-[#30363d] flex items-center gap-3">
             <div className="relative w-12 h-12 flex items-center justify-center bg-gradient-to-br from-[#0D1117] to-[#161B22] rounded-xl border border-amber-500/20">
-              <Shield size={24} className="text-amber-500" />
+              <img src="/logo.png" className="w-10 h-10 object-contain" alt="Logo" />
             </div>
             <div>
               <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
