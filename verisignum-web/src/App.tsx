@@ -91,6 +91,47 @@ const STRIPE_PLANS = [
   }
 ];
 
+// --- HELPER: MATRIZ DE CONFIANÇA (IA VS C2PA) ---
+const getAuditStatus = (isAi: boolean, hasC2pa: boolean) => {
+  if (!isAi && hasC2pa) {
+    return {
+      title: "Autêntico Verificado",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/20",
+      icon: <CheckCircle2 size={32} className="text-emerald-400" />,
+      desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
+    };
+  } else if (!isAi && !hasC2pa) {
+    return {
+      title: "Indeterminado",
+      color: "text-blue-400",
+      bg: "bg-blue-500/10",
+      border: "border-blue-500/20",
+      icon: <AlertCircle size={32} className="text-blue-400" />,
+      desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
+    };
+  } else if (isAi && hasC2pa) {
+    return {
+      title: "IA Assistida (Transparente)",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
+      icon: <AlertTriangle size={32} className="text-amber-400" />,
+      desc: "Conteúdo editado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
+    };
+  } else {
+    return {
+      title: "Risco: IA Não Verificada",
+      color: "text-red-400",
+      bg: "bg-red-500/10",
+      border: "border-red-500/20",
+      icon: <AlertTriangle size={32} className="text-red-400" />,
+      desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável."
+    };
+  }
+};
+
 // --- COMPONENTE DE PRÉ-VISUALIZAÇÃO DE ARQUIVO ---
 const FilePreview = ({ file }: { file: File }) => {
   const url = useMemo(() => URL.createObjectURL(file), [file]);
@@ -545,35 +586,151 @@ export default function App() {
 
   const handleDownloadPDF = () => {
     if (!scanResult || !lensFile) return;
+
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) {
-        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "Permita pop-ups." }));
+        setCopyStatus((prev: CopyStatus) => ({ ...prev, error: "O seu navegador bloqueou a abertura do PDF. Permita pop-ups." }));
         return;
     }
+
+    const isAi = scanResult.isAiGenerated;
+    const hasC2pa = scanResult.metadataFound;
+    
+    let pdfStatus = {
+      title: "",
+      textColor: "",
+      bgColor: "",
+      borderColor: "",
+      desc: ""
+    };
+
+    if (!isAi && hasC2pa) {
+      pdfStatus = {
+        title: "Autêntico Verificado",
+        textColor: "#10b981",
+        bgColor: "#f0fdf4",
+        borderColor: "#bbf7d0",
+        desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
+      };
+    } else if (!isAi && !hasC2pa) {
+      pdfStatus = {
+        title: "Indeterminado",
+        textColor: "#3b82f6",
+        bgColor: "#eff6ff",
+        borderColor: "#bfdbfe",
+        desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
+      };
+    } else if (isAi && hasC2pa) {
+      pdfStatus = {
+        title: "IA Assistida (Transparente)",
+        textColor: "#d97706",
+        bgColor: "#fffbeb",
+        borderColor: "#fef3c7",
+        desc: "Conteúdo editado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
+      };
+    } else {
+      pdfStatus = {
+        title: "Risco: IA Não Verificada",
+        textColor: "#ef4444",
+        bgColor: "#fef2f2",
+        borderColor: "#fecaca",
+        desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável."
+      };
+    }
+
     const scoreToDisplay = scanResult.score ?? 65;
+
     const htmlContent = `
       <!DOCTYPE html>
       <html lang="pt-PT">
       <head>
         <meta charset="UTF-8">
         <title>Laudo Forense - ${lensFile.name}</title>
-        <style>body { font-family: sans-serif; padding: 40px; }</style>
+        <style>
+          body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1f2937; line-height: 1.6; padding: 40px; max-width: 800px; margin: 0 auto; background-color: #ffffff; }
+          .header { display: flex; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 20px; margin-bottom: 30px; }
+          .logo-box { width: 44px; height: 44px; background-color: #1e293b; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin-right: 15px; }
+          .header-text h1 { margin: 0; color: #111827; font-size: 22px; letter-spacing: 1px; font-weight: 800; }
+          .header-text p { margin: 2px 0 0 0; color: #6b7280; font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 700; }
+          .title-section { text-align: center; margin-bottom: 35px; }
+          .title-section h2 { margin: 0; color: #111827; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+          .title-section p { margin: 5px 0 0 0; color: #6b7280; font-size: 13px; }
+          .box { border: 1px solid #e5e7eb; border-radius: 12px; padding: 20px; margin-bottom: 25px; background-color: #f9fafb; }
+          .box h3 { margin-top: 0; color: #111827; font-size: 14px; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px; margin-bottom: 14px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700; }
+          .row { display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px dashed #e5e7eb; padding-bottom: 6px; font-size: 13px; }
+          .row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
+          .label { font-weight: 600; color: #4b5563; }
+          .value { color: #111827; text-align: right; font-family: monospace; font-weight: 500; }
+          
+          .status-card { border: 1px solid ${pdfStatus.borderColor}; border-radius: 12px; padding: 24px; margin-bottom: 25px; background-color: ${pdfStatus.bgColor}; display: flex; justify-content: space-between; align-items: center; }
+          .status-info { flex: 1; padding-right: 20px; }
+          .status-title { margin: 0; font-size: 18px; font-weight: 700; color: ${pdfStatus.textColor}; }
+          .status-desc { margin: 6px 0 0 0; font-size: 13px; color: #374151; }
+          .status-score { background-color: #111827; color: #ffffff; padding: 10px 16px; border-radius: 8px; text-align: center; min-width: 90px; }
+          .status-score h4 { margin: 0; font-size: 20px; font-weight: 800; }
+          .status-score p { margin: 2px 0 0 0; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
+
+          .anomaly-item { font-size: 13px; color: #374151; padding: 10px 14px; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; }
+          .footer { margin-top: 50px; border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center; line-height: 1.5; }
+        </style>
       </head>
       <body>
-        <h1>VERISIGNUM LENS</h1>
-        <h2>LAUDO TÉCNICO</h2>
-        <p>Arquivo: ${lensFile.name}</p>
-        <p>Resultado: ${scoreToDisplay}% Humano</p>
+        <div class="header">
+          <div class="logo-box">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          </div>
+          <div class="header-text">
+            <h1>VERISIGNUM LENS</h1>
+            <p>Infraestrutura Forense e Confiança Digital</p>
+          </div>
+        </div>
+
+        <div class="title-section">
+          <h2>LAUDO TÉCNICO DE AUDITORIA</h2>
+          <p>Análise de Proveniência Criptográfica e Heurística Gerativa</p>
+        </div>
+
+        <div class="box">
+          <h3>1. Identificação do Ativo Digital</h3>
+          <div class="row"><span class="label">Nome do Ficheiro:</span><span class="value">${lensFile.name}</span></div>
+          <div class="row"><span class="label">Tamanho do Arquivo:</span><span class="value">${(lensFile.size / 1024 / 1024).toFixed(2)} MB</span></div>
+          <div class="row"><span class="label">Data de Processamento:</span><span class="value">${new Date().toLocaleString('pt-PT')}</span></div>
+          <div class="row"><span class="label">Identificador Forense:</span><span class="value">VSL-${Math.random().toString(36).substring(2, 11).toUpperCase()}</span></div>
+        </div>
+
+        <div class="status-card">
+          <div class="status-info">
+            <h4 class="status-title">${pdfStatus.title}</h4>
+            <p class="status-desc">${pdfStatus.desc}</p>
+          </div>
+          <div class="status-score">
+            <h4>${scoreToDisplay}%</h4>
+            <p>Humano</p>
+          </div>
+        </div>
+
+        <div class="box" style="background-color: #ffffff;">
+          <h3>2. Mapeamento de Heurísticas & Anomalias</h3>
+          <div style="margin-top: 10px;">
+            ${scanResult.anomalies.map(anomaly => `<div class="anomaly-item">${anomaly}</div>`).join('')}
+          </div>
+        </div>
+
+        <div class="footer">
+          Laudo oficial automatizado pelo ecossistema VerisignumLens v4.2.<br>
+          Em total conformidade com o Regulamento Geral sobre a Proteção de Dados (RGPD) e as especificações globais da C2PA.<br>
+          A plataforma adota uma Política de Armazenamento Zero: os ficheiros não são salvos nos servidores após o diagnóstico.
+        </div>
+        
+        <script>
+          window.onload = function() { window.print(); }
+        </script>
       </body>
       </html>
     `;
+
     printWindow.document.write(htmlContent);
     printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 500);
   };
 
   const sendMessageToGemini = async (): Promise<void> => {
@@ -697,7 +854,7 @@ export default function App() {
           </form>
 
           <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
-            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors">
+            <button onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(null); }} className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
               {authMode === 'login' ? 'Novo usuário? Solicite o seu acesso.' : 'Já é parceiro? Faça o seu login.'}
             </button>
           </div>
@@ -916,7 +1073,6 @@ export default function App() {
                     <label htmlFor="shield-file" className="px-4 py-2 bg-[#21262d] text-white text-xs rounded-lg cursor-pointer border border-[#30363d]">Selecionar Arquivo</label>
                   </div>
                   
-                  {/* PRÉ-VISUALIZAÇÃO DO ARQUIVO AQUI */}
                   {shieldFile && (
                     <div className="bg-[#0d1117] p-4 rounded-xl border border-[#30363d]">
                       <p className="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wider">Pré-visualização do Ativo</p>
@@ -964,7 +1120,6 @@ export default function App() {
                     <label htmlFor="lens-file" className="px-4 py-2 bg-[#21262d] text-white text-xs rounded-lg cursor-pointer border border-[#30363d]">Selecionar Arquivo</label>
                   </div>
                   
-                  {/* PRÉ-VISUALIZAÇÃO DO ARQUIVO AQUI */}
                   {lensFile && (
                     <div className="bg-[#0d1117] p-4 rounded-xl border border-[#30363d]">
                       <p className="text-xs text-gray-400 mb-2 font-semibold uppercase tracking-wider">A ser Analisado</p>
@@ -983,12 +1138,33 @@ export default function App() {
                     <h3 className="text-lg font-bold text-white mb-4">Relatório Forense</h3>
                     {scanResult ? (
                       <div className="space-y-6">
-                        <div className="flex justify-between items-center bg-[#0d1117] p-5 border border-[#30363d] rounded-xl">
-                          <p className="text-3xl font-extrabold text-white">{scanResult.score}% Humano</p>
-                          <div className={`p-3 rounded-xl ${scanResult.isAiGenerated ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                            {scanResult.isAiGenerated ? <AlertTriangle size={32} /> : <CheckCircle2 size={32} />}
-                          </div>
+                        
+                        {(() => {
+                          const status = getAuditStatus(scanResult.isAiGenerated, scanResult.metadataFound);
+                          return (
+                            <div className={`flex flex-col md:flex-row justify-between items-start md:items-center p-5 rounded-xl border ${status.bg} ${status.border}`}>
+                              <div className="space-y-1 mb-4 md:mb-0 pr-4">
+                                <h4 className={`text-lg font-bold ${status.color}`}>{status.title}</h4>
+                                <p className="text-xs text-gray-300 leading-relaxed">{status.desc}</p>
+                                <div className="mt-3 inline-block bg-[#0d1117] px-3 py-1.5 rounded border border-[#30363d]">
+                                  <p className="text-xl font-extrabold text-white">{scanResult.score}% Humano</p>
+                                </div>
+                              </div>
+                              <div className={`p-3 rounded-xl bg-[#0d1117] bg-opacity-50 border shrink-0 ${status.border}`}>
+                                {status.icon}
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        <div className="space-y-2 mt-4">
+                          {scanResult.anomalies.map((anomaly, idx) => (
+                             <div key={idx} className="flex gap-2.5 items-start bg-[#0d1117] p-3 border border-[#30363d] rounded-lg">
+                                <p className="text-xs text-gray-300">{anomaly}</p>
+                             </div>
+                          ))}
                         </div>
+
                       </div>
                     ) : (
                       <div className="h-full flex flex-col items-center justify-center text-gray-500 p-12"><Activity size={48} className="mb-4 text-gray-700" /><p className="text-sm">Pronto para Diagnóstico</p></div>
