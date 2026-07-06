@@ -711,8 +711,8 @@ export default function App() {
             <p class="status-desc">${pdfStatus.desc}</p>
           </div>
           <div class="status-score">
-            <h4>${scoreToDisplay}%</h4>
-            <p>Humano</p>
+            <h4>${scanResult.isAiGenerated ? '100' : scoreToDisplay}%</h4>
+            <p>${scanResult.isAiGenerated ? 'IA' : 'Humano'}</p>
           </div>
         </div>
 
@@ -1154,7 +1154,9 @@ export default function App() {
                                 <h4 className={`text-lg font-bold ${status.color}`}>{status.title}</h4>
                                 <p className="text-xs text-gray-300 leading-relaxed">{status.desc}</p>
                                 <div className="mt-3 inline-block bg-[#0d1117] px-3 py-1.5 rounded border border-[#30363d]">
-                                  <p className="text-xl font-extrabold text-white">{scanResult.score}% Humano</p>
+                                  <p className="text-xl font-extrabold text-white">
+                                    {scanResult.isAiGenerated ? '100% IA' : `${scanResult.score}% Humano`}
+                                  </p>
                                 </div>
                               </div>
                               <div className={`p-3 rounded-xl bg-[#0d1117] bg-opacity-50 border shrink-0 ${status.border}`}>
