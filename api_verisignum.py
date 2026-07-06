@@ -301,6 +301,62 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     )
     return {"access_token": access_token, "token_type": "bearer", "client_name": client.name}
 
+# --- ROTA DE REDEFINIÇÃO DE SENHA ---
+class ResetPasswordRequest(BaseModel):
+    email: str
+
+@app.post("/v1/auth/reset-password")
+def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
+    """
+    Simula ou realiza o envio de um e-mail com instruções para redefinição de senha.
+    """
+    cliente = db.query(Client).filter(Client.email == req.email).first()
+    
+    if not cliente:
+        # Por segurança, retornamos a mesma mensagem de sucesso mesmo se o e-mail não existir,
+        # para evitar ataques de enumeração de e-mails.
+        return {"message": "Se o e-mail estiver cadastrado, você receberá as instruções em breve."}
+
+    if not resend.api_key:
+        logger.warning("Chave da API do Resend não configurada. Instruções de reset de senha não enviadas.")
+        # Simula sucesso para o frontend não quebrar, mas avisa no log.
+        return {"message": "Se o e-mail estiver cadastrado, você receberá as instruções em breve."}
+
+    html_body = f"""
+    <html>
+    <body style="font-family: sans-serif; color: #333; line-height: 1.6;">
+        <h2>Recuperação de Senha - Verisignum Digital</h2>
+        <p>Olá, {cliente.name},</p>
+        <p>Recebemos uma solicitação de redefinição de senha para sua conta.</p>
+        <p><strong>Siga os passos abaixo:</strong></p>
+        <ol>
+            <li>Acesse o nosso portal através do link: <a href='https://verisignumdigital.com/login'>Página de Login</a></li>
+            <li>Clique no botão "Redefinir Senha".</li>
+            <li>Insira o código de segurança que será enviado em breve.</li>
+            <li>Crie sua nova senha e salve.</li>
+        </ol>
+        <p>Se você não solicitou esta troca, por favor, ignore este e-mail.</p>
+        <p>Atenciosamente,<br>Equipe Verisignum Digital</p>
+    </body>
+    </html>
+    """
+
+    params = {
+        "from": "Verisignum AI <contato@verisignumdigital.com>",
+        "to": [req.email],
+        "subject": "Como resetar sua senha - Verisignum Digital",
+        "html": html_body,
+    }
+
+    try:
+        resend.Emails.send(params)
+        logger.info(f"E-mail de reset de senha enviado para {req.email}")
+        return {"message": "Se o e-mail estiver cadastrado, você receberá as instruções em breve."}
+    except Exception as e:
+        logger.error(f"Erro ao enviar e-mail de reset via Resend: {e}")
+        raise HTTPException(status_code=500, detail="Erro interno ao processar a solicitação de redefinição.")
+
+
 @app.get("/v1/dashboard/me")
 def read_users_me(current_client: Client = Depends(get_current_client)):
     return {
