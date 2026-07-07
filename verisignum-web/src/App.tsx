@@ -888,7 +888,7 @@ export default function App() {
           
           <div className="flex flex-col items-center mb-8 relative z-10">
             <div className="w-14 h-14 bg-[#0d1117] border border-[#30363d] rounded-xl flex items-center justify-center mb-4 shadow-lg">
-              <img src="/verisignum-logo-branco.png" className="w-[30px] h-[30px] object-contain" alt="Logo" />
+              <img src="/verisignum-logo-branco.png" className="w-[30px] h-[30px] object-contain" alt="Logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             </div>
             <h1 className="text-2xl font-bold text-white tracking-wider">VERISIGNUM</h1>
             <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Enterprise Portal</p>
@@ -1077,7 +1077,7 @@ export default function App() {
           <div className="p-6 border-b border-[#30363d] flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="relative w-12 h-12 flex items-center justify-center bg-[#0D1117] rounded-xl border border-[#30363d]">
-                 <img src="/verisignum-logo-branco.png" className="w-[24px] h-[24px] object-contain" alt="Logo" />
+                 <img src="/verisignum-logo-branco.png" className="w-[24px] h-[24px] object-contain" alt="Logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
               </div>
               <div>
                 <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
@@ -1123,7 +1123,7 @@ export default function App() {
                 <Menu size={24} />
               </button>
               <div className="flex items-center gap-2">
-                <img src="/verisignum-logo-branco.png" className="w-[18px] h-[18px] object-contain" alt="Logo" />
+                <img src="/verisignum-logo-branco.png" className="w-[18px] h-[18px] object-contain" alt="Logo" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                 <h1 className="text-md font-bold text-white tracking-wider">VERISIGNUM</h1>
               </div>
            </div>
@@ -1138,6 +1138,7 @@ export default function App() {
 
         <div className="p-4 md:p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
+          {/* TAB: ADMIN (GESTAO) */}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6">
               <div>
@@ -1176,6 +1177,7 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: DASHBOARD (MÉTRICAS) */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-white">Análise da Operação Verisignum</h2>
@@ -1186,21 +1188,22 @@ export default function App() {
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
                   <span className="text-xs text-gray-400">Ativos Criptografados</span>
-                  <div className="text-3xl font-extrabold text-indigo-500">1,245</div>
+                  <div className="text-3xl font-extrabold text-indigo-500">0</div>
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2">
                   <span className="text-xs text-gray-400">Deepfakes Identificados</span>
-                  <div className="text-3xl font-extrabold text-amber-500">23</div>
+                  <div className="text-3xl font-extrabold text-amber-500">0</div>
                 </div>
               </div>
             </div>
           )}
 
+          {/* TAB: SHIELD (ASSINATURA) */}
           {activeTab === 'shield' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
                 <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                   <img src="/verisignum-logo-branco.png" className="w-[20px] h-[20px] object-contain" alt="" /> VerisignumShield
+                   <img src="/verisignum-logo-branco.png" className="w-[20px] h-[20px] object-contain" alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} /> VerisignumShield
                 </h3>
                 <form onSubmit={handleShieldSubmit} className="space-y-4">
                   <div 
@@ -1245,6 +1248,7 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: LENS (FORENSE) */}
           {activeTab === 'lens' && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
@@ -1322,6 +1326,7 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: API DEVELOPER */}
           {activeTab === 'api' && (
             <div className="bg-[#161b22] border border-[#30363d] p-6 rounded-xl space-y-6">
               <h3 className="text-lg font-bold text-white flex items-center gap-2"><Key className="text-indigo-500" /> API Access Keys</h3>
@@ -1332,6 +1337,7 @@ export default function App() {
             </div>
           )}
 
+          {/* TAB: COPILOT */}
           {activeTab === 'copilot' && (
             <div className="bg-[#161b22] border border-[#30363d] rounded-xl flex flex-col h-[500px]">
               <div className="px-6 py-4 border-b border-[#30363d] flex items-center gap-2"><Sparkles size={18} className="text-indigo-400" /><h3 className="font-bold text-white text-sm">Verisignum Copilot</h3></div>
