@@ -414,7 +414,6 @@ def fix_database(db: Session = Depends(get_db)):
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS hashed_password VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS stripe_customer_id VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS trial_ends_at TIMESTAMP;"))
-        # Adicione estas duas linhas abaixo para criar as novas colunas de reset de senha:
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS reset_token VARCHAR;"))
         db.execute(text("ALTER TABLE clients ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMP;"))
         db.commit()
@@ -424,3 +423,12 @@ def fix_database(db: Session = Depends(get_db)):
         return {"error": str(e)}
 
 @app.delete("/v1/admin/reset-database")
+def reset_database(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
+    try:
+        admin_email = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
+        db.query(Client).filter(Client.email != admin_email).delete()
+        db.commit()
+        return {"status": "Sucesso! O banco de dados foi limpo, mas a sua conta God Mode foi mantida intacta."}
+    except Exception as e:
+        db.rollback()
+        return {"error": str(e)}
