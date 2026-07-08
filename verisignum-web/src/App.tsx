@@ -1,29 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Shield,
-  Eye,
-  Code,
-  FileCheck,
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Terminal,
-  Key,
-  ExternalLink,
-  Sparkles,
-  Send,
-  Loader2,
-  Lock,
-  AlertCircle,
-  FileText,
-  LogOut,
-  CreditCard,
-  Check,
-  Menu,
-  X
+  Shield, Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
+  Terminal, Key, ExternalLink, Sparkles, Send, Loader2, Lock, AlertCircle, 
+  FileText, LogOut, CreditCard, Check, Menu, X
 } from 'lucide-react';
 
-// --- INTERFACES ---
 interface CopyStatus {
   [key: string]: boolean | string | null;
   error: string | null;
@@ -55,7 +36,6 @@ interface ClientTenant {
   status: string;
 }
 
-// --- CONSTANTES ---
 const RENDER_API_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
 const RENDER_VERIFY_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 const RENDER_ADMIN_CLIENTS_URL = "https://verisignum-api.onrender.com/v1/admin/clients";
@@ -68,90 +48,31 @@ const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboar
 const RENDER_RESET_URL = "https://verisignum-api.onrender.com/v1/auth/reset-password";
 
 const STRIPE_PLANS = [
-  {
-    id: 'creator',
-    name: 'Creator',
-    price: '$29/mês',
-    desc: 'Até 200 mídias',
-    price_id_fixo: 'price_1TmmpaHFEg79uXE9ZHlK48Va',
-    price_id_variavel: 'price_1TmmpaHFEg79uXE99gldVSIQ'
-  },
-  {
-    id: 'pro',
-    name: 'Professional',
-    price: '$149/mês',
-    desc: 'Até 1.500 mídias',
-    price_id_fixo: 'price_1TmmlcHFEg79uXE9Lhj3a9OT',
-    price_id_variavel: 'price_1TmmnLHFEg79uXE96OvVD023'
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    price: '$499/mês',
-    desc: 'Até 10.000 mídias',
-    price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK',
-    price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU'
-  }
+  { id: 'creator', name: 'Creator', price: '$29/mês', desc: 'Até 200 mídias', price_id_fixo: 'price_1TmmpaHFEg79uXE9ZHlK48Va', price_id_variavel: 'price_1TmmpaHFEg79uXE99gldVSIQ' },
+  { id: 'pro', name: 'Professional', price: '$149/mês', desc: 'Até 1.500 mídias', price_id_fixo: 'price_1TmmlcHFEg79uXE9Lhj3a9OT', price_id_variavel: 'price_1TmmnLHFEg79uXE96OvVD023' },
+  { id: 'enterprise', name: 'Enterprise', price: '$499/mês', desc: 'Até 10.000 mídias', price_id_fixo: 'price_1Tj9lcHFEg79uXE9zDKghejK', price_id_variavel: 'price_1Tj9laHFEg79uXE9W3vGD9kU' }
 ];
 
-// --- HELPER: MATRIZ DE CONFIANÇA (IA VS C2PA/VERISIGNUM) ---
 const getAuditStatus = (isAi: boolean, hasVerisignum: boolean) => {
   if (!isAi && hasVerisignum) {
-    return {
-      title: "Arquivo 100% Original + Criptografia Verisignum",
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/20",
-      icon: <CheckCircle2 size={32} className="text-emerald-400" />,
-      desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
-    };
+    return { title: "Arquivo 100% Original + Criptografia Verisignum", color: "text-emerald-400", bg: "bg-emerald-500/10", border: "border-emerald-500/20", icon: <CheckCircle2 size={32} className="text-emerald-400" />, desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum." };
   } else if (!isAi && !hasVerisignum) {
-    return {
-      title: "Arquivo 100% Original",
-      color: "text-blue-400",
-      bg: "bg-blue-500/10",
-      border: "border-blue-500/20",
-      icon: <AlertCircle size={32} className="text-blue-400" />,
-      desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
-    };
+    return { title: "Arquivo 100% Original", color: "text-blue-400", bg: "bg-blue-500/10", border: "border-blue-500/20", icon: <AlertCircle size={32} className="text-blue-400" />, desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência." };
   } else if (isAi && hasVerisignum) {
-    return {
-      title: "100% IA + Criptografia Verisignum",
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/20",
-      icon: <AlertTriangle size={32} className="text-amber-400" />,
-      desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
-    };
+    return { title: "100% IA + Criptografia Verisignum", color: "text-amber-400", bg: "bg-amber-500/10", border: "border-amber-500/20", icon: <AlertTriangle size={32} className="text-amber-400" />, desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas." };
   } else {
-    return {
-      title: "100% IA",
-      color: "text-red-400",
-      bg: "bg-red-500/10",
-      border: "border-red-500/20",
-      icon: <AlertTriangle size={32} className="text-red-400" />,
-      desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável."
-    };
+    return { title: "100% IA", color: "text-red-400", bg: "bg-red-500/10", border: "border-red-500/20", icon: <AlertTriangle size={32} className="text-red-400" />, desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável." };
   }
 };
 
-// --- COMPONENTE DE PRÉ-VISUALIZAÇÃO DE ARQUIVO ---
 const FilePreview = ({ file }: { file: File }) => {
   const url = useMemo(() => URL.createObjectURL(file), [file]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
 
-  useEffect(() => {
-    return () => URL.revokeObjectURL(url);
-  }, [url]);
-
-  if (file.type.startsWith('image/')) {
-    return <img src={url} alt="Preview" className="max-h-48 rounded-lg mx-auto border border-[#30363d] object-contain shadow-lg" />;
-  }
-  if (file.type.startsWith('video/')) {
-    return <video src={url} controls className="max-h-48 rounded-lg mx-auto border border-[#30363d] shadow-lg" />;
-  }
-  if (file.type.startsWith('audio/')) {
-    return <audio src={url} controls className="w-full mt-2" />;
-  }
+  if (file.type.startsWith('image/')) return <img src={url} alt="Preview" className="max-h-48 rounded-lg mx-auto border border-[#30363d] object-contain shadow-lg" />;
+  if (file.type.startsWith('video/')) return <video src={url} controls className="max-h-48 rounded-lg mx-auto border border-[#30363d] shadow-lg" />;
+  if (file.type.startsWith('audio/')) return <audio src={url} controls className="w-full mt-2" />;
+  
   return (
     <div className="flex flex-col items-center justify-center p-6 bg-[#21262d] border border-[#30363d] rounded-lg text-gray-400">
       <FileText size={32} className="mb-2 text-indigo-400" />
@@ -193,9 +114,7 @@ export default function App() {
   const [scanResult, setScanResult] = useState<ScanResult | null>(null);
   const [isDraggingLens, setIsDraggingLens] = useState(false);
 
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', text: 'Olá! Sou o seu Verisignum Compliance Copilot. Como posso ajudar hoje?' }
-  ]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([{ role: 'assistant', text: 'Olá! Sou o seu Verisignum Compliance Copilot. Como posso ajudar hoje?' }]);
   const [inputMessage, setInputMessage] = useState('');
   const [isChatLoading, setIsChatLoading] = useState(false);
 
@@ -204,7 +123,6 @@ export default function App() {
   const [isCreatingClient, setIsCreatingClient] = useState(false);
   const [billingLoading, setBillingLoading] = useState<string | null>(null);
 
-  // Sistema de Reset de Senha
   const urlParams = new URLSearchParams(window.location.search);
   const tokenFromUrl = urlParams.get('reset_token');
   const [resetToken] = useState<string | null>(tokenFromUrl);
@@ -214,8 +132,44 @@ export default function App() {
   const ADMIN_EMAIL = 'contato@verisignumdigital.com';
   const isAdmin = clientData?.email === ADMIN_EMAIL;
 
+  const fetchDashboardData = async (token: string) => {
+    try {
+      const response = await fetch(RENDER_DASHBOARD_ME_URL, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setClientData(data);
+        setIsAuthenticated(true);
+      } else {
+        localStorage.removeItem('access_token');
+        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error("Dashboard fetch error", error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsInitialLoading(false);
+    }
+  };
+
+  const fetchAdminClients = async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token) return;
+    try {
+      const response = await fetch(RENDER_ADMIN_CLIENTS_URL, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setClients(data);
+      }
+    } catch (error) {
+      console.error("Failed to fetch clients", error);
+    }
+  };
+
   useEffect(() => {
-    // Lê a URL para ver se o utilizador veio do botão "Iniciar Trial" da Landing Page
     const params = new URLSearchParams(window.location.search);
     if (params.get('mode') === 'register') {
       setAuthMode('register');
@@ -223,7 +177,6 @@ export default function App() {
 
     const token = localStorage.getItem('access_token');
     if (token && !resetToken) {
-      setIsAuthenticated(true);
       fetchDashboardData(token);
     } else {
       setIsInitialLoading(false);
@@ -242,7 +195,6 @@ export default function App() {
       throw new Error('Segurança: A senha deve ter no mínimo 8 caracteres, contendo letras, números e um caractere especial.');
     }
 
-    // 1. Cria a Conta na API
     const url = new URL(RENDER_AUTH_REGISTER_URL);
     url.searchParams.append('name', authName);
     url.searchParams.append('email', authEmail);
@@ -256,7 +208,6 @@ export default function App() {
     const registerData = await res.json();
     const newClientId = registerData.client_id;
     
-    // 2. Faz o Login Automático
     const formData = new URLSearchParams();
     formData.append('username', authEmail);
     formData.append('password', authPassword);
@@ -273,7 +224,6 @@ export default function App() {
     const token = loginData.access_token;
     localStorage.setItem('access_token', token);
 
-    // 3. Executa a Ação (Ativar Trial Mágico ou Enviar para a Stripe)
     if (action === 'trial') {
       const trialRes = await fetch(RENDER_TRIAL_URL, {
         method: 'POST',
@@ -284,9 +234,8 @@ export default function App() {
         const err = await trialRes.json();
         throw new Error(err.detail || 'Falha ao ativar período de teste.');
       }
-      setIsAuthenticated(true);
       setIsInitialLoading(true);
-      await fetchDashboardData(token); // Carrega os dados e liberta o utilizador para o Dashboard
+      await fetchDashboardData(token);
     } else if (action === 'checkout') {
       const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
       const checkoutRes = await fetch(RENDER_BILLING_URL, {
@@ -311,9 +260,9 @@ export default function App() {
 
     try {
       if (authMode === 'register') {
-        await executeRegisterFlow(actionType);
+        const flowAction = actionType === 'login' ? 'trial' : actionType;
+        await executeRegisterFlow(flowAction as 'trial' | 'checkout');
       } else {
-        // Login Padrão
         const formData = new URLSearchParams();
         formData.append('username', authEmail);
         formData.append('password', authPassword);
@@ -331,9 +280,8 @@ export default function App() {
 
         const data = await res.json();
         localStorage.setItem('access_token', data.access_token);
-        setIsAuthenticated(true);
         setIsInitialLoading(true);
-        fetchDashboardData(data.access_token); 
+        await fetchDashboardData(data.access_token); 
       }
     } catch (err: any) {
       setAuthError(err.message);
@@ -343,10 +291,9 @@ export default function App() {
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
-    // Se o utilizador pressionar ENTER no teclado
     e.preventDefault();
     if (authMode === 'register') {
-      handleAuthAction(e, 'trial'); // O Trial é a ação primária (padrão)
+      handleAuthAction(e, 'trial');
     } else {
       handleAuthAction(e, 'login');
     }
@@ -363,10 +310,7 @@ export default function App() {
       const response = await fetch(RENDER_RESET_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: authEmail,
-          frontend_url: window.location.origin
-        })
+        body: JSON.stringify({ email: authEmail, frontend_url: window.location.origin })
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => null);
@@ -387,9 +331,7 @@ export default function App() {
     try {
       await new Promise(r => setTimeout(r, 1500));
       setResetSuccess(true);
-      setTimeout(() => {
-        window.location.href = "/";
-      }, 3000);
+      setTimeout(() => window.location.href = "/", 3000);
     } catch(e: any) {
       setAuthError(e.message);
     } finally {
@@ -597,7 +539,6 @@ export default function App() {
         });
       }
 
-      // ATUALIZAÇÃO EM TEMPO REAL: Recarregar dados do painel (Total de Verificações)
       if (token) {
         fetchDashboardData(token);
       }
@@ -610,7 +551,6 @@ export default function App() {
           manifest: JSON.stringify({ "status": "Simulado (MVP)" }, null, 2)
         });
         
-        // Atualiza as estatísticas mesmo no modo simulado para efeito de demonstração
         const token = localStorage.getItem('access_token');
         if (token) {
           fetchDashboardData(token);
@@ -667,7 +607,6 @@ export default function App() {
         anomalies: sanitizeAnomalies(aiData?.anomalies)
       });
 
-      // ATUALIZAÇÃO EM TEMPO REAL: Recarregar dados do painel (Total de Verificações)
       if (token) {
         fetchDashboardData(token);
       }
@@ -692,46 +631,16 @@ export default function App() {
     const isAi = scanResult.isAiGenerated;
     const hasVerisignum = scanResult.metadataFound;
     
-    let pdfStatus = {
-      title: "",
-      textColor: "",
-      bgColor: "",
-      borderColor: "",
-      desc: ""
-    };
+    let pdfStatus = { title: "", textColor: "", bgColor: "", borderColor: "", desc: "" };
 
     if (!isAi && hasVerisignum) {
-      pdfStatus = {
-        title: "Arquivo 100% Original + Criptografia Verisignum",
-        textColor: "#10b981",
-        bgColor: "#f0fdf4",
-        borderColor: "#bbf7d0",
-        desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum."
-      };
+      pdfStatus = { title: "Arquivo 100% Original + Criptografia Verisignum", textColor: "#10b981", bgColor: "#f0fdf4", borderColor: "#bbf7d0", desc: "Ficheiro original sem manipulação de IA. Origem certificada pelo motor Verisignum." };
     } else if (!isAi && !hasVerisignum) {
-      pdfStatus = {
-        title: "Arquivo 100% Original",
-        textColor: "#3b82f6",
-        bgColor: "#eff6ff",
-        borderColor: "#bfdbfe",
-        desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência."
-      };
+      pdfStatus = { title: "Arquivo 100% Original", textColor: "#3b82f6", bgColor: "#eff6ff", borderColor: "#bfdbfe", desc: "Nenhum vestígio de IA detectado, mas o ficheiro não possui selo criptográfico de proveniência." };
     } else if (isAi && hasVerisignum) {
-      pdfStatus = {
-        title: "100% IA + Criptografia Verisignum",
-        textColor: "#d97706",
-        bgColor: "#fffbeb",
-        borderColor: "#fef3c7",
-        desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas."
-      };
+      pdfStatus = { title: "100% IA + Criptografia Verisignum", textColor: "#d97706", bgColor: "#fffbeb", borderColor: "#fef3c7", desc: "Conteúdo gerado por IA, mas com autoria e proveniência devidamente declaradas e certificadas." };
     } else {
-      pdfStatus = {
-        title: "100% IA",
-        textColor: "#ef4444",
-        bgColor: "#fef2f2",
-        borderColor: "#fecaca",
-        desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável."
-      };
+      pdfStatus = { title: "100% IA", textColor: "#ef4444", bgColor: "#fef2f2", borderColor: "#fecaca", desc: "Forte probabilidade de manipulação por IA sem qualquer registro de custódia rastreável." };
     }
 
     const scoreToDisplay = scanResult.score ?? 65;
@@ -757,7 +666,6 @@ export default function App() {
           .row:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }
           .label { font-weight: 600; color: #4b5563; }
           .value { color: #111827; text-align: right; font-family: monospace; font-weight: 500; }
-          
           .status-card { border: 1px solid ${pdfStatus.borderColor}; border-radius: 12px; padding: 24px; margin-bottom: 25px; background-color: ${pdfStatus.bgColor}; display: flex; justify-content: space-between; align-items: center; }
           .status-info { flex: 1; padding-right: 20px; }
           .status-title { margin: 0; font-size: 18px; font-weight: 700; color: ${pdfStatus.textColor}; }
@@ -765,7 +673,6 @@ export default function App() {
           .status-score { background-color: #111827; color: #ffffff; padding: 10px 16px; border-radius: 8px; text-align: center; min-width: 90px; }
           .status-score h4 { margin: 0; font-size: 20px; font-weight: 800; }
           .status-score p { margin: 2px 0 0 0; font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
-
           .anomaly-item { font-size: 13px; color: #374151; padding: 10px 14px; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; margin-bottom: 8px; }
           .footer { margin-top: 50px; border-top: 1px solid #e5e7eb; padding-top: 20px; font-size: 11px; color: #9ca3af; text-align: center; line-height: 1.5; }
         </style>
@@ -780,12 +687,10 @@ export default function App() {
             <p>Infraestrutura Forense e Confiança Digital</p>
           </div>
         </div>
-
         <div class="title-section">
           <h2>LAUDO TÉCNICO DE AUDITORIA</h2>
           <p>Análise de Proveniência Criptográfica e Heurística Gerativa</p>
         </div>
-
         <div class="box">
           <h3>1. Identificação do Ativo Digital</h3>
           <div class="row"><span class="label">Nome do Ficheiro:</span><span class="value">${lensFile.name}</span></div>
@@ -793,7 +698,6 @@ export default function App() {
           <div class="row"><span class="label">Data de Processamento:</span><span class="value">${new Date().toLocaleString('pt-PT')}</span></div>
           <div class="row"><span class="label">Identificador Forense:</span><span class="value">VSL-${Math.random().toString(36).substring(2, 11).toUpperCase()}</span></div>
         </div>
-
         <div class="status-card">
           <div class="status-info">
             <h4 class="status-title">${pdfStatus.title}</h4>
@@ -804,27 +708,23 @@ export default function App() {
             <p>${isAi ? 'IA' : 'Humano'}</p>
           </div>
         </div>
-
         <div class="box" style="background-color: #ffffff;">
           <h3>2. Mapeamento de Heurísticas & Anomalias</h3>
           <div style="margin-top: 10px;">
             ${scanResult.anomalies.map(anomaly => `<div class="anomaly-item">${anomaly}</div>`).join('')}
           </div>
         </div>
-
         <div class="footer">
           Laudo oficial automatizado pelo ecossistema VerisignumLens v4.2.<br>
-          Em total conformidade com o Regulamento Geral sobre a Proteção de Dados (RGPD) e as especificações globais da Verisignum.<br>
+          Em total conformidade com o Regulamento Geral sobre a Proteção de Dados (RGPD).<br>
           A plataforma adota uma Política de Armazenamento Zero: os ficheiros não são salvos nos servidores após o diagnóstico.
         </div>
-        
         <script>
           window.onload = function() { window.print(); }
         </script>
       </body>
       </html>
     `;
-
     printWindow.document.write(htmlContent);
     printWindow.document.close();
   };
@@ -853,7 +753,6 @@ export default function App() {
     }
   };
 
-  // --- RENDERIZAÇÃO: MODO REDEFINIR SENHA ---
   if (resetToken) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans">
@@ -892,7 +791,7 @@ export default function App() {
                   <AlertCircle size={16} className="flex-shrink-0" /> <span>{authError}</span>
                 </div>
               )}
-              <button type="submit" disabled={authLoading || !newPassword} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 flex justify-center gap-2 shadow-lg shadow-indigo-500/20 transition-all">
+              <button type="submit" disabled={!!authLoading || !newPassword} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 flex justify-center gap-2 shadow-lg shadow-indigo-500/20 transition-all">
                 {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Salvar Nova Senha'}
               </button>
             </form>
@@ -902,7 +801,6 @@ export default function App() {
     );
   }
 
-  // --- RENDERIZAÇÃO: LOADING INICIAL ---
   if (isInitialLoading) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center">
@@ -911,7 +809,6 @@ export default function App() {
     );
   }
 
-  // --- RENDERIZAÇÃO: LOGIN / REGISTO ---
   if (!isAuthenticated) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto py-10">
@@ -930,11 +827,11 @@ export default function App() {
             {authMode === 'register' && (
               <>
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-gray-400">Nome da Instituição</label>
+                  <label className="text-xs font-semibold text-gray-400">Nome ou Instituição</label>
                   <input 
                     type="text" value={authName} onChange={(e) => setAuthName(e.target.value)}
                     className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                    required placeholder="Ex: Universidade de Lisboa"
+                    required placeholder="Ex: Studio 5 ou Univ. Lisboa"
                   />
                 </div>
                 
@@ -966,11 +863,11 @@ export default function App() {
             )}
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-gray-400">E-mail Corporativo</label>
+              <label className="text-xs font-semibold text-gray-400">E-mail Profissional</label>
               <input 
                 type="email" value={authEmail} onChange={(e) => setAuthEmail(e.target.value)}
                 className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-sm text-white focus:ring-1 focus:ring-indigo-500 outline-none transition-all" 
-                required placeholder="diretor@edtech.com"
+                required placeholder="seu@email.com"
               />
             </div>
             <div className="space-y-1">
@@ -1031,7 +928,6 @@ export default function App() {
     );
   }
 
-  // --- RENDERIZAÇÃO: PENDENTE DE PAGAMENTO ---
   if (isAuthenticated && clientData && !clientData.is_active) {
     return (
       <div className="flex h-screen bg-[#0d1117] items-center justify-center p-4 font-sans overflow-y-auto">
@@ -1102,7 +998,6 @@ export default function App() {
     );
   }
 
-  // --- RENDERIZAÇÃO: DASHBOARD COMPLETO ---
   return (
     <div className="flex h-screen bg-[#0d1117] text-[#c9d1d9] font-sans overflow-hidden">
       {copyStatus.error && (
@@ -1112,15 +1007,10 @@ export default function App() {
         </div>
       )}
 
-      {/* Overlay Mobile para Sidebar */}
       {isMobileMenuOpen && (
-        <div 
-          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm"
-          onClick={() => setIsMobileMenuOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm" onClick={() => setIsMobileMenuOpen(false)} />
       )}
 
-      {/* Sidebar */}
       <aside className={`fixed inset-y-0 left-0 w-64 bg-[#161b22] border-r border-[#30363d] flex flex-col justify-between z-50 transition-transform duration-300 md:relative md:translate-x-0 ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div>
           <div className="p-6 border-b border-[#30363d] flex items-center justify-between gap-3">
@@ -1132,7 +1022,6 @@ export default function App() {
                 <h1 className="text-lg font-bold text-white tracking-wider">VERISIGNUM</h1>
               </div>
             </div>
-            {/* Botão Fechar Sidebar Mobile */}
             <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden text-gray-400 hover:text-white">
               <X size={24} />
             </button>
@@ -1140,7 +1029,7 @@ export default function App() {
           
           <nav className="p-4 space-y-1">
             <button onClick={() => changeTabMobile('dashboard')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'dashboard' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Activity size={18} /> Painel de Controlo</button>
-            <button onClick={() => changeTabMobile('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Shield size={18} /> VerisignumShield</button>
+            <button onClick={() => changeTabMobile('shield')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'shield' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><img src="/verisignum-logo-branco.png" className="w-[18px] h-[18px] object-contain" alt="" /> VerisignumShield</button>
             <button onClick={() => changeTabMobile('lens')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'lens' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Eye size={18} /> VerisignumLens</button>
             <button onClick={() => changeTabMobile('api')} className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium ${activeTab === 'api' ? 'bg-[#21262d] text-white border-l-4 border-indigo-500' : 'text-gray-400 hover:bg-[#21262d]'}`}><Code size={18} /> API Developer</button>
           </nav>
@@ -1163,10 +1052,8 @@ export default function App() {
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-y-auto">
         <header className="h-16 border-b border-[#30363d] px-4 md:px-8 flex items-center justify-between bg-[#161b22]">
-           {/* Hambúrguer + Título Mobile */}
            <div className="flex items-center gap-3 md:hidden">
               <button onClick={() => setIsMobileMenuOpen(true)} className="text-gray-400 hover:text-white focus:outline-none">
                 <Menu size={24} />
@@ -1187,6 +1074,7 @@ export default function App() {
 
         <div className="p-4 md:p-8 max-w-7xl w-full mx-auto space-y-8 flex-1">
 
+          {}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6">
               <div>
