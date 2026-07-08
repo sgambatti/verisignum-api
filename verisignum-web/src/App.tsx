@@ -982,9 +982,29 @@ export default function App() {
               </div>
             )}
 
-            <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 mt-2 shadow-lg shadow-indigo-500/20">
-              {authLoading ? <Loader2 className="animate-spin" size={16} /> : (authMode === 'login' ? 'Entrar no Sistema' : 'Avançar para Pagamento')}
-            </button>
+            <div className="pt-2 space-y-3">
+              {authMode === 'register' ? (
+                <>
+                  <button type="submit" disabled={authLoading} className="w-full bg-[#1c2128] text-white font-semibold rounded-lg p-3 text-sm hover:bg-[#21262d] border border-[#30363d] disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg">
+                    {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Iniciar Trial de 2 dias'}
+                  </button>
+                  
+                  <div className="flex items-center gap-4 py-1">
+                    <div className="h-px bg-[#30363d] flex-1"></div>
+                    <span className="text-[10px] text-gray-500 font-medium uppercase tracking-widest">Ou Checkout Direto</span>
+                    <div className="h-px bg-[#30363d] flex-1"></div>
+                  </div>
+
+                  <button type="button" onClick={handleAuth} disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
+                    {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Avançar para Pagamento Seguro'}
+                  </button>
+                </>
+              ) : (
+                <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
+                  {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Entrar no Sistema'}
+                </button>
+              )}
+            </div>
           </form>
 
           <div className="mt-6 text-center relative z-10 pt-4 border-t border-[#30363d]">
@@ -1005,10 +1025,7 @@ export default function App() {
           <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-500/20">
             <CreditCard size={32} className="text-amber-500" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Assinatura Pendente</h2>
-          <p className="text-sm text-gray-400 mb-6 leading-relaxed">
-            Olá, <strong className="text-white">{clientData.name}</strong>. Confirme a seleção do seu plano para aceder à API.
-          </p>
+          <h2 className="text-2xl font-bold text-white mb-6">Assinatura Pendente</h2>
 
           <div className="text-left space-y-2 mb-8">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
