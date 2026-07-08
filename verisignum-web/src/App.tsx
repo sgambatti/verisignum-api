@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Shield, Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
+  Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
   Terminal, Key, ExternalLink, Sparkles, Send, Loader2, Lock, AlertCircle, 
   FileText, LogOut, CreditCard, Check, Menu, X
 } from 'lucide-react';
