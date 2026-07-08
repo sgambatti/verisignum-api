@@ -170,7 +170,7 @@ export default function App() {
   const [authName, setAuthName] = useState('');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
-  const [authLoading, setAuthLoading] = useState(false);
+  const [authLoading, setAuthLoading] = useState<string | boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [clientData, setClientData] = useState<any>(null);
 
@@ -214,40 +214,13 @@ export default function App() {
   const ADMIN_EMAIL = 'contato@verisignumdigital.com';
   const isAdmin = clientData?.email === ADMIN_EMAIL;
 
-  const fetchDashboardData = async (token: string) => {
-    try {
-      const res = await fetch(RENDER_DASHBOARD_ME_URL, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setClientData(data);
-      } else {
-        handleLogout();
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsInitialLoading(false);
-    }
-  };
-
-  const fetchAdminClients = async () => {
-    try {
-      const token = localStorage.getItem('access_token');
-      const res = await fetch(RENDER_ADMIN_CLIENTS_URL, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setClients(data);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   useEffect(() => {
+    // Lê a URL para ver se o utilizador veio do botão "Iniciar Trial" da Landing Page
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('mode') === 'register') {
+      setAuthMode('register');
+    }
+
     const token = localStorage.getItem('access_token');
     if (token && !resetToken) {
       setIsAuthenticated(true);
@@ -263,53 +236,84 @@ export default function App() {
     }
   }, [activeTab, isAdmin]);
 
-  const handleAuth = async (e: React.FormEvent) => {
+  const executeRegisterFlow = async (action: 'trial' | 'checkout') => {
+    const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
+    if (!passwordRegex.test(authPassword)) {
+      throw new Error('Segurança: A senha deve ter no mínimo 8 caracteres, contendo letras, números e um caractere especial.');
+    }
+
+    // 1. Cria a Conta na API
+    const url = new URL(RENDER_AUTH_REGISTER_URL);
+    url.searchParams.append('name', authName);
+    url.searchParams.append('email', authEmail);
+    url.searchParams.append('password', authPassword);
+
+    const res = await fetch(url.toString(), { method: 'POST' });
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.detail || 'Erro ao criar conta.');
+    }
+    const registerData = await res.json();
+    const newClientId = registerData.client_id;
+    
+    // 2. Faz o Login Automático
+    const formData = new URLSearchParams();
+    formData.append('username', authEmail);
+    formData.append('password', authPassword);
+
+    const loginRes = await fetch(RENDER_AUTH_LOGIN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString()
+    });
+    
+    if (!loginRes.ok) throw new Error('Conta criada com sucesso, mas o login automático falhou.');
+
+    const loginData = await loginRes.json();
+    const token = loginData.access_token;
+    localStorage.setItem('access_token', token);
+
+    // 3. Executa a Ação (Ativar Trial Mágico ou Enviar para a Stripe)
+    if (action === 'trial') {
+      const trialRes = await fetch(RENDER_TRIAL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: newClientId.toString() })
+      });
+      if (!trialRes.ok) {
+        const err = await trialRes.json();
+        throw new Error(err.detail || 'Falha ao ativar período de teste.');
+      }
+      setIsAuthenticated(true);
+      setIsInitialLoading(true);
+      await fetchDashboardData(token); // Carrega os dados e liberta o utilizador para o Dashboard
+    } else if (action === 'checkout') {
+      const selectedPlan = STRIPE_PLANS.find(p => p.id === selectedPlanId) || STRIPE_PLANS[1];
+      const checkoutRes = await fetch(RENDER_BILLING_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tenant_id: newClientId.toString(),
+          price_id_fixo: selectedPlan.price_id_fixo,
+          price_id_variavel: selectedPlan.price_id_variavel
+        })
+      });
+      if (!checkoutRes.ok) throw new Error('Falha na API de Faturação ao contactar a Stripe.');
+      const data = await checkoutRes.json();
+      window.location.href = data.checkout_url;
+    }
+  };
+
+  const handleAuthAction = async (e: React.FormEvent | React.MouseEvent, actionType: 'login' | 'trial' | 'checkout') => {
     e.preventDefault();
-    setAuthLoading(true);
+    setAuthLoading(actionType);
     setAuthError(null);
 
     try {
       if (authMode === 'register') {
-        const passwordRegex = /^(?=.*[A-Za-z])(?=.*\d)(?=.*[@$!%*#?&])[A-Za-z\d@$!%*#?&]{8,}$/;
-        if (!passwordRegex.test(authPassword)) {
-          setAuthError('Segurança: A senha deve ter no mínimo 8 caracteres, contendo letras, números e um caractere especial.');
-          setAuthLoading(false);
-          return;
-        }
-
-        const url = new URL(RENDER_AUTH_REGISTER_URL);
-        url.searchParams.append('name', authName);
-        url.searchParams.append('email', authEmail);
-        url.searchParams.append('password', authPassword);
-
-        const res = await fetch(url.toString(), { method: 'POST' });
-        if (!res.ok) {
-            const error = await res.json();
-            throw new Error(error.detail || 'Erro ao criar conta.');
-        }
-        
-        const formData = new URLSearchParams();
-        formData.append('username', authEmail);
-        formData.append('password', authPassword);
-
-        const loginRes = await fetch(RENDER_AUTH_LOGIN_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: formData.toString()
-        });
-        
-        if (!loginRes.ok) {
-            setAuthMode('login');
-            throw new Error('Conta criada com sucesso! Por favor, faça o login.');
-        }
-
-        const loginData = await loginRes.json();
-        localStorage.setItem('access_token', loginData.access_token);
-        setIsAuthenticated(true);
-        setIsInitialLoading(true);
-        fetchDashboardData(loginData.access_token); 
-
+        await executeRegisterFlow(actionType);
       } else {
+        // Login Padrão
         const formData = new URLSearchParams();
         formData.append('username', authEmail);
         formData.append('password', authPassword);
@@ -335,6 +339,16 @@ export default function App() {
       setAuthError(err.message);
     } finally {
       setAuthLoading(false);
+    }
+  };
+
+  const handleFormSubmit = (e: React.FormEvent) => {
+    // Se o utilizador pressionar ENTER no teclado
+    e.preventDefault();
+    if (authMode === 'register') {
+      handleAuthAction(e, 'trial'); // O Trial é a ação primária (padrão)
+    } else {
+      handleAuthAction(e, 'login');
     }
   };
 
@@ -912,7 +926,7 @@ export default function App() {
             <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest font-mono">Enterprise Portal</p>
           </div>
 
-          <form onSubmit={handleAuth} className="space-y-4 relative z-10">
+          <form onSubmit={handleFormSubmit} className="space-y-4 relative z-10">
             {authMode === 'register' && (
               <>
                 <div className="space-y-1">
@@ -985,8 +999,8 @@ export default function App() {
             <div className="pt-2 space-y-3">
               {authMode === 'register' ? (
                 <>
-                  <button type="submit" disabled={authLoading} className="w-full bg-[#1c2128] text-white font-semibold rounded-lg p-3 text-sm hover:bg-[#21262d] border border-[#30363d] disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg">
-                    {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Iniciar Trial de 2 dias'}
+                  <button type="button" onClick={(e) => handleAuthAction(e, 'trial')} disabled={!!authLoading} className="w-full bg-[#1c2128] text-white font-semibold rounded-lg p-3 text-sm hover:bg-[#21262d] border border-[#30363d] disabled:opacity-50 transition-all flex items-center justify-center gap-2 shadow-lg">
+                    {authLoading === 'trial' ? <Loader2 className="animate-spin" size={16} /> : 'Iniciar Trial de 2 dias'}
                   </button>
                   
                   <div className="flex items-center gap-4 py-1">
@@ -995,13 +1009,13 @@ export default function App() {
                     <div className="h-px bg-[#30363d] flex-1"></div>
                   </div>
 
-                  <button type="button" onClick={handleAuth} disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
-                    {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Avançar para Pagamento Seguro'}
+                  <button type="button" onClick={(e) => handleAuthAction(e, 'checkout')} disabled={!!authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
+                    {authLoading === 'checkout' ? <Loader2 className="animate-spin" size={16} /> : 'Avançar para Pagamento Seguro'}
                   </button>
                 </>
               ) : (
-                <button type="submit" disabled={authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
-                  {authLoading ? <Loader2 className="animate-spin" size={16} /> : 'Entrar no Sistema'}
+                <button type="submit" disabled={!!authLoading} className="w-full bg-indigo-600 text-white font-semibold rounded-lg p-3 text-sm hover:bg-indigo-700 disabled:bg-indigo-600/50 transition-all flex items-center justify-center gap-2 shadow-lg shadow-indigo-500/20">
+                  {authLoading === 'login' ? <Loader2 className="animate-spin" size={16} /> : 'Entrar no Sistema'}
                 </button>
               )}
             </div>
