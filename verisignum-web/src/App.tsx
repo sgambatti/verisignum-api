@@ -752,12 +752,18 @@ export default function App() {
           return;
         }
       }
-      throw new Error('Falha no proxy da API');
+      throw new Error('Falha no proxy da API do Render (Provavelmente falta a GEMINI_API_KEY no servidor)');
     } catch (error) {
       console.warn("Backend copilot indisponível. Acionando canal seguro direto...");
       try {
         // Tentativa 2: Fallback direto usando o runtime Gemini do ambiente integrado
         const apiKey = ""; // Chave segura injetada na sandbox da plataforma
+        
+        // Bloqueio inteligente para testes locais sem chave
+        if (!apiKey && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+            throw new Error("Modo Localhost: API Key ausente.");
+        }
+
         const systemPrompt = "Você é o Verisignum Compliance Copilot, assistente técnico de inteligência forense digital e conformidade da Verisignum. Responda em português com clareza, autoridade técnica e objetividade comercial.";
         
         const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
@@ -770,7 +776,7 @@ export default function App() {
         });
 
         if (!geminiRes.ok) {
-          throw new Error("Falha na geração direta.");
+          throw new Error("Falha na geração direta. Verifique as credenciais.");
         }
 
         const resJson = await geminiRes.json();
@@ -781,9 +787,17 @@ export default function App() {
         } else {
           setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Desculpe, o motor de resposta retornou um formato de dados inválido.' }]);
         }
-      } catch (fallbackErr) {
+      } catch (fallbackErr: any) {
         console.error("Todos os canais de IA falharam:", fallbackErr);
-        setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Não foi possível ligar ao servidor do Copilot. Verifique a sua conexão ou tente mais tarde.' }]);
+        
+        // Fallback de Demonstração (Evita erro visual de sistema quebrado)
+        let demoReply = "⚠️ **Aviso de Integração:** O servidor forense da Verisignum não pôde processar a requisição de IA neste momento.";
+        
+        if (fallbackErr.message.includes("Localhost") || fallbackErr.message.includes("API Key")) {
+            demoReply = "💡 **Modo de Simulação (Demo):** Parece que você está testando o painel localmente no seu computador. Para a IA responder de verdade, vá ao painel da sua API no Render e adicione a variável de ambiente `GEMINI_API_KEY`.";
+        }
+
+        setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: demoReply }]);
       }
     } finally {
       setIsChatLoading(false);
