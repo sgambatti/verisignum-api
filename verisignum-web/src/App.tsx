@@ -90,7 +90,6 @@ export default function App() {
   const [clientData, setClientData] = useState<any>(null);
 
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isKeyVisible, setIsKeyVisible] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ error: null });
 
