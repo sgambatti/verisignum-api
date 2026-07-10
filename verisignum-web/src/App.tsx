@@ -749,55 +749,59 @@ export default function App() {
         const result = await response.json();
         if (result.reply) {
           setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: result.reply }]);
+          setIsChatLoading(false);
           return;
         }
       }
-      throw new Error('Falha no proxy da API do Render (Provavelmente falta a GEMINI_API_KEY no servidor)');
+      throw new Error('Falha no proxy da API');
     } catch (error) {
-      console.warn("Backend copilot indisponível. Acionando canal seguro direto...");
-      try {
-        // Tentativa 2: Fallback direto usando o runtime Gemini do ambiente integrado
-        const apiKey = ""; // Chave segura injetada na sandbox da plataforma
-        
-        // Bloqueio inteligente para testes locais sem chave
-        if (!apiKey && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-            throw new Error("Modo Localhost: API Key ausente.");
-        }
+      // Tentativa 2: Fallback direto com Exponential Backoff
+      const apiKey = ""; // Deixar vazio. O ambiente injeta a chave no runtime.
+      const systemPrompt = "Você é o Verisignum Compliance Copilot, assistente técnico de inteligência forense digital e conformidade da Verisignum. Responda em português com clareza, autoridade técnica e objetividade comercial.";
+      
+      const payload = {
+        contents: [{ parts: [{ text: userMsg.text }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] }
+      };
 
-        const systemPrompt = "Você é o Verisignum Compliance Copilot, assistente técnico de inteligência forense digital e conformidade da Verisignum. Responda em português com clareza, autoridade técnica e objetividade comercial.";
-        
-        const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: userMsg.text }] }],
-            systemInstruction: { parts: [{ text: systemPrompt }] }
-          })
-        });
+      // Tenta 6 vezes no total, com atrasos de 1s, 2s, 4s, 8s e 16s.
+      const delays = [1000, 2000, 4000, 8000, 16000];
+      let success = false;
 
-        if (!geminiRes.ok) {
-          throw new Error("Falha na geração direta. Verifique as credenciais.");
-        }
+      for (let i = 0; i <= delays.length; i++) {
+        try {
+          const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
 
-        const resJson = await geminiRes.json();
-        const textReply = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
-        
-        if (textReply) {
-          setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: textReply }]);
-        } else {
-          setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: 'Desculpe, o motor de resposta retornou um formato de dados inválido.' }]);
-        }
-      } catch (fallbackErr: any) {
-        console.error("Todos os canais de IA falharam:", fallbackErr);
-        
-        // Fallback de Demonstração (Evita erro visual de sistema quebrado)
-        let demoReply = "⚠️ **Aviso de Integração:** O servidor forense da Verisignum não pôde processar a requisição de IA neste momento.";
-        
-        if (fallbackErr.message.includes("Localhost") || fallbackErr.message.includes("API Key")) {
-            demoReply = "💡 **Modo de Simulação (Demo):** Parece que você está testando o painel localmente no seu computador. Para a IA responder de verdade, vá ao painel da sua API no Render e adicione a variável de ambiente `GEMINI_API_KEY`.";
-        }
+          if (!geminiRes.ok) {
+            throw new Error(`HTTP error! status: ${geminiRes.status}`);
+          }
 
-        setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: demoReply }]);
+          const resJson = await geminiRes.json();
+          const textReply = resJson.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (textReply) {
+            setChatMessages((prev: ChatMessage[]) => [...prev, { role: 'assistant', text: textReply }]);
+            success = true;
+            break; // Sai do loop se tiver sucesso
+          } else {
+            throw new Error("Formato de dados inválido");
+          }
+        } catch (err) {
+          if (i < delays.length) {
+            await new Promise(resolve => setTimeout(resolve, delays[i]));
+          }
+        }
+      }
+
+      if (!success) {
+        setChatMessages((prev: ChatMessage[]) => [...prev, { 
+          role: 'assistant', 
+          text: "Desculpe, os nossos servidores de IA encontram-se sobrecarregados ou indisponíveis no momento. Por favor, tente novamente mais tarde." 
+        }]);
       }
     } finally {
       setIsChatLoading(false);
