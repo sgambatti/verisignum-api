@@ -334,3 +334,28 @@ async def verificar_midia(
         return {"has_verisignum": has_verisignum, "ai_analysis": {"score": 100 if has_verisignum else final_score, "is_ai": is_ai, "anomalies": anomalies}}
     finally:
         if os.path.exists(caminho_temp): os.remove(caminho_temp)
+
+@app.delete("/v1/admin/reset-database", tags=["Admin (Testes)"])
+def reset_database(db: Session = Depends(get_db)):
+    """
+    [DANGER ZONE - APENAS PARA FASE DE TESTES]
+    Apaga todos os registos de utilizadores e chaves de API associadas para limpar o ambiente.
+    """
+    try:
+        # Apaga os registos na ordem correta para respeitar chaves estrangeiras (Foreign Keys)
+        db.query(APIKey).delete()
+        db.query(User).delete()
+        
+        # Confirma a transação
+        db.commit()
+        
+        return {
+            "status": "sucesso", 
+            "message": "Base de dados limpa com sucesso. Todos os utilizadores e chaves foram apagados."
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Erro crítico ao tentar limpar a base de dados: {str(e)}"
+        )
