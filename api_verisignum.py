@@ -165,8 +165,8 @@ def register_client(name: str, email: str, password: str, db: Session = Depends(
 @app.post("/v1/admin/register-admin", tags=["Admin (Testes)"], status_code=201)
 def register_admin_direct(name: str, email: str, password: str, db: Session = Depends(get_db)):
     """
-    Cria ou ATUALIZA o admin para entrar DIRETAMENTE na plataforma, igual à versão de segurança.
-    Força o is_active=True e zera os trials para que o React não bloqueie a entrada.
+    Cria ou ATUALIZA o admin para ter ACESSO VITALÍCIO na plataforma.
+    Força o is_active=True, anula os trials e injeta um ID Stripe vitalício para evitar bloqueios.
     """
     client = db.query(Client).filter(Client.email == email).first()
     hashed_password = pwd_context.hash(password)
@@ -174,19 +174,21 @@ def register_admin_direct(name: str, email: str, password: str, db: Session = De
     if client:
         client.is_active = True
         client.trial_ends_at = None
+        client.stripe_customer_id = "lifetime_admin_access"
         client.hashed_password = hashed_password 
         db.commit()
-        return {"message": "Admin atualizado e ATIVADO. Faça login para entrar direto.", "client_id": client.id}
+        return {"message": "Admin atualizado com ACESSO VITALÍCIO. Entre direto no painel.", "client_id": client.id}
     
     new_api_key = "vsg_live_" + secrets.token_hex(16)
     new_client = Client(
         name=name, email=email, hashed_password=hashed_password, 
-        api_key=new_api_key, is_active=True, trial_ends_at=None
+        api_key=new_api_key, is_active=True, trial_ends_at=None,
+        stripe_customer_id="lifetime_admin_access"
     )
     db.add(new_client)
     db.commit()
     db.refresh(new_client)
-    return {"message": "Admin criado e ATIVADO. Faça login para entrar direto.", "client_id": new_client.id}
+    return {"message": "Admin criado com ACESSO VITALÍCIO. Entre direto no painel.", "client_id": new_client.id}
 
 @app.post("/v1/auth/login")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
