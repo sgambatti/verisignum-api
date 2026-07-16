@@ -339,19 +339,20 @@ async def verificar_midia(
 def reset_database(db: Session = Depends(get_db)):
     """
     [DANGER ZONE - APENAS PARA FASE DE TESTES]
-    Apaga todos os registos de clientes para limpar o ambiente.
+    Apaga todos os registos de clientes, EXCETO a conta de Administrador.
     Mantém-se permanentemente no código a pedido do CTPO.
     """
+    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
     try:
-        # Deleta todos os registros da tabela Client
-        db.query(Client).delete()
+        # Deleta todos os registros da tabela Client, EXCETO o admin
+        db.query(Client).filter(Client.email != ADMIN_EMAIL).delete()
         
         # Confirma a exclusão no banco de dados
         db.commit()
         
         return {
             "status": "sucesso", 
-            "message": "Base de dados limpa com sucesso. Todos os clientes e chaves de API foram apagados!"
+            "message": "Base de dados limpa com sucesso. Todos os clientes de teste foram apagados, mas a sua conta Admin foi preservada!"
         }
     except Exception as e:
         db.rollback()
