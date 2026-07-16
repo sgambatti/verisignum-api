@@ -142,7 +142,7 @@ def get_admin_client(current_client: Client = Depends(get_current_client)):
     return current_client
 
 # ==========================================
-# ROTAS DE AUTENTICAÇÃO, REGISTRO E RESET REAL
+# ROTAS DE AUTENTICAÇÃO, REGISTRO E RESET
 # ==========================================
 
 @app.post("/v1/auth/register", status_code=201)
@@ -165,29 +165,28 @@ def register_client(name: str, email: str, password: str, db: Session = Depends(
 @app.post("/v1/admin/register-admin", tags=["Admin (Testes)"], status_code=201)
 def register_admin_direct(name: str, email: str, password: str, db: Session = Depends(get_db)):
     """
-    Cria ou ATUALIZA uma conta incondicionalmente, mascarando como cliente pagante VIP 
-    para que o React nunca redirecione para a tela de Trial.
+    Cria ou ATUALIZA o admin para entrar DIRETAMENTE na plataforma, igual à versão de segurança.
+    Força o is_active=True e zera os trials para que o React não bloqueie a entrada.
     """
     client = db.query(Client).filter(Client.email == email).first()
     hashed_password = pwd_context.hash(password)
     
     if client:
         client.is_active = True
-        client.trial_ends_at = None  # Remove trial para ser lido como Ativo Definitivo
-        client.stripe_customer_id = "vip_admin_bypass" # Falso ID do Stripe para enganar o React
+        client.trial_ends_at = None
         client.hashed_password = hashed_password 
         db.commit()
-        return {"message": "Conta existente foi ATIVADA como VIP! Pode fazer login.", "client_id": client.id}
+        return {"message": "Admin atualizado e ATIVADO. Faça login para entrar direto.", "client_id": client.id}
     
     new_api_key = "vsg_live_" + secrets.token_hex(16)
     new_client = Client(
         name=name, email=email, hashed_password=hashed_password, 
-        api_key=new_api_key, is_active=True, trial_ends_at=None, stripe_customer_id="vip_admin_bypass"
+        api_key=new_api_key, is_active=True, trial_ends_at=None
     )
     db.add(new_client)
     db.commit()
     db.refresh(new_client)
-    return {"message": "Conta VIP criada! Pode fazer login direto no painel.", "client_id": new_client.id}
+    return {"message": "Admin criado e ATIVADO. Faça login para entrar direto.", "client_id": new_client.id}
 
 @app.post("/v1/auth/login")
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -198,50 +197,16 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
     access_token = create_access_token(data={"sub": client.email}, expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     return {"access_token": access_token, "token_type": "bearer", "client_name": client.name}
 
-class ResetPasswordRequest(BaseModel):
-    email: str
-    frontend_url: str
-
-@app.post("/v1/auth/reset-password")
-def reset_password(req: ResetPasswordRequest, db: Session = Depends(get_db)):
-    cliente = db.query(Client).filter(Client.email == req.email).first()
-    if not cliente: return {"message": "Se o e-mail estiver registado, receberá um link em breve."}
-    token_seguranca = secrets.token_urlsafe(32)
-    cliente.reset_token = token_seguranca
-    cliente.reset_token_expires = datetime.utcnow() + timedelta(hours=1)
-    db.commit()
-    return {"message": "Se o e-mail estiver registado, receberá um link em breve."}
-
-class ConfirmResetRequest(BaseModel):
-    token: str
-    new_password: str
-
-@app.post("/v1/auth/confirm-reset")
-def confirm_password_reset(req: ConfirmResetRequest, db: Session = Depends(get_db)):
-    cliente = db.query(Client).filter(Client.reset_token == req.token).first()
-    if not cliente: raise HTTPException(status_code=400, detail="Link de recuperação inválido.")
-    if cliente.reset_token_expires < datetime.utcnow(): raise HTTPException(status_code=400, detail="Link expirado.")
-    cliente.hashed_password = pwd_context.hash(req.new_password)
-    cliente.reset_token = None
-    cliente.reset_token_expires = None
-    db.commit()
-    return {"message": "Senha atualizada com sucesso!"}
-
 @app.get("/v1/dashboard/me")
 def read_users_me(current_client: Client = Depends(get_current_client)):
-    plan_status = "Pendente"
-    if current_client.stripe_customer_id == "vip_admin_bypass":
-        plan_status = "Ativo (VIP)"
-    elif current_client.is_active and not current_client.trial_ends_at:
-        plan_status = "Ativo"
-    elif current_client.trial_ends_at:
-        plan_status = "Trial (Testes)"
-        
+    # Devolvido ao estado original exato que o React espera para liberar o acesso.
     return {
-        "id": current_client.id, "name": current_client.name, "email": current_client.email,
-        "api_key": current_client.api_key, "usage_count": current_client.usage_count,
-        "is_active": current_client.is_active,
-        "plan": plan_status
+        "id": current_client.id,
+        "name": current_client.name,
+        "email": current_client.email,
+        "api_key": current_client.api_key,
+        "usage_count": current_client.usage_count,
+        "is_active": current_client.is_active
     }
 
 @app.get("/v1/admin/clients")
@@ -367,11 +332,10 @@ async def verificar_midia(
 @app.delete("/v1/admin/reset-database", tags=["Admin (Testes)"])
 def reset_database(db: Session = Depends(get_db)):
     """
-    [DANGER ZONE] Apaga todos os utilizadores EXCETO o Admin Master.
+    [DANGER ZONE] Apaga tudo, mas PROTEGE o e-mail do administrador principal.
     """
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
     try:
-        # Apaga tudo onde o e-mail não seja igual ao e-mail de admin
         db.query(Client).filter(Client.email != ADMIN_EMAIL).delete()
         db.commit()
         return {"status": "sucesso", "message": f"Base limpa! A conta '{ADMIN_EMAIL}' foi preservada."}
