@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session, declarative_base, sessionmaker
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, text, DateTime
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from models import User  # (ou de outro ficheiro onde os modelos estejam definidos)
 
 load_dotenv()
 
