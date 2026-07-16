@@ -23,6 +23,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Boolean, text, Da
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 from models import User  # (ou de outro ficheiro onde os modelos estejam definidos)
+from models import User, APIKey
 
 load_dotenv()
 
