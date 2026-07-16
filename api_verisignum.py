@@ -332,13 +332,12 @@ async def verificar_midia(
 @app.delete("/v1/admin/reset-database", tags=["Admin (Testes)"])
 def reset_database(db: Session = Depends(get_db)):
     """
-    [DANGER ZONE] Apaga tudo, mas PROTEGE o e-mail do administrador principal.
+    [DANGER ZONE] Apaga TODOS os registos da base de dados, incluindo o administrador.
     """
-    ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "contato@verisignumdigital.com")
     try:
-        db.query(Client).filter(Client.email != ADMIN_EMAIL).delete()
+        db.query(Client).delete()
         db.commit()
-        return {"status": "sucesso", "message": f"Base limpa! A conta '{ADMIN_EMAIL}' foi preservada."}
+        return {"status": "sucesso", "message": "Base de dados totalmente limpa. Nenhum utilizador foi preservado."}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
