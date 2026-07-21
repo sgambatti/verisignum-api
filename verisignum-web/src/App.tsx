@@ -1356,7 +1356,7 @@ export default function App() {
                           <Download size={16} /> Download .EXE
                         </a>
                         <a 
-                          href="/guia_instalacao_windows.pdf" 
+                          href="/Guia_Instalacao_Verisignum_Windows.pdf" 
                           download="Guia_Instalacao_Verisignum_Windows.pdf"
                           className="w-full flex items-center justify-center gap-2 py-2 bg-transparent hover:bg-white/5 text-gray-400 hover:text-white border border-transparent hover:border-[#30363d] text-xs font-medium rounded-lg transition-all"
                         >
