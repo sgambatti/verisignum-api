@@ -1346,9 +1346,15 @@ export default function App() {
                       </div>
                       <h4 className="text-white font-semibold mb-1">Windows (64-bit)</h4>
                       <p className="text-xs text-gray-500 mb-6">Compatível com Windows 10 e 11.</p>
-                      <button className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors shadow-lg shadow-indigo-500/20">
-                        <Download size={16} /> Download .EXE
-                      </button>
+                      
+                      <div className="w-full space-y-2">
+                        <button className="w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors shadow-lg shadow-indigo-500/20">
+                          <Download size={16} /> Download .EXE
+                        </button>
+                        <button className="w-full flex items-center justify-center gap-2 py-2 bg-transparent hover:bg-white/5 text-gray-400 hover:text-white border border-transparent hover:border-[#30363d] text-xs font-medium rounded-lg transition-all">
+                          <FileText size={14} /> Baixar Guia de Instalação (PDF)
+                        </button>
+                      </div>
                     </div>
 
                     {/* Botão Mac */}
@@ -1358,9 +1364,15 @@ export default function App() {
                       </div>
                       <h4 className="text-white font-semibold mb-1">macOS (Apple Silicon & Intel)</h4>
                       <p className="text-xs text-gray-500 mb-6">Compatível com macOS 12+.</p>
-                      <button className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#30363d] hover:bg-gray-600 text-white text-sm font-semibold rounded-lg transition-colors shadow-lg">
-                        <Download size={16} /> Download .APP
-                      </button>
+                      
+                      <div className="w-full space-y-2">
+                        <button className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#30363d] hover:bg-gray-600 text-white text-sm font-semibold rounded-lg transition-colors shadow-lg">
+                          <Download size={16} /> Download .APP
+                        </button>
+                        <button className="w-full flex items-center justify-center gap-2 py-2 bg-transparent hover:bg-white/5 text-gray-400 hover:text-white border border-transparent hover:border-[#30363d] text-xs font-medium rounded-lg transition-all">
+                          <FileText size={14} /> Baixar Guia de Instalação (PDF)
+                        </button>
+                      </div>
                     </div>
                   </div>
                   
