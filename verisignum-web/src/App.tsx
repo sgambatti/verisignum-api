@@ -41,7 +41,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // NOVO: Estados para a Tela de Login/Cadastro
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authEmail, setAuthEmail] = useState('');
   const [authPassword, setAuthPassword] = useState('');
@@ -50,31 +49,43 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState({ type: '', text: '' });
   const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  // Estados dos Módulos Forenses (Restaurados)
+  const [history, setHistory] = useState<HistoryLog[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [moduleFilter, setModuleFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
+  const [adminClients, setAdminClients] = useState<ClientTenant[]>([]);
+  const [adminLoading, setAdminLoading] = useState(false);
+
   const [shieldFile, setShieldFile] = useState<File | null>(null);
   const [shieldAuthor, setShieldAuthor] = useState('');
   const [shieldOrg, setShieldOrg] = useState('');
   const [isShielding, setIsShielding] = useState(false);
   const [shieldSuccess, setShieldSuccess] = useState(false);
+  const [shieldPreview, setShieldPreview] = useState<string | null>(null);
 
   const [lensFile, setLensFile] = useState<File | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scanStep, setScanStep] = useState('');
   const [scanResult, setScanResult] = useState<any>(null);
-
-  const [shieldPreview, setShieldPreview] = useState<string | null>(null);
   const [lensPreview, setLensPreview] = useState<string | null>(null);
+
+  const [copyStatus, setCopyStatus] = useState<CopyStatus>({ error: null });
+  
+  // Defina o email do administrador do sistema aqui
+  const ADMIN_EMAIL = 'contato@verisignumdigital.com';
+  const isAdmin = clientData?.email === ADMIN_EMAIL;
 
   useEffect(() => {
     if (!shieldFile) {
       setShieldPreview(null);
       return;
     }
-    // Se for imagem, cria uma URL local para mostrar a foto
     if (shieldFile.type.startsWith('image/')) {
       const objectUrl = URL.createObjectURL(shieldFile);
       setShieldPreview(objectUrl);
-      return () => URL.revokeObjectURL(objectUrl); // Limpa a memória quando descartado
+      return () => URL.revokeObjectURL(objectUrl);
     } else {
       setShieldPreview(null);
     }
@@ -177,7 +188,6 @@ export default function App() {
     setClientData(null);
   };
 
-  // Funções de Interação dos Módulos (Restauradas)
   const handleShieldSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!shieldFile) return;
@@ -252,7 +262,6 @@ export default function App() {
     }
   };
 
-  // Funções de Download Mockadas/Auxiliares
   const downloadManual = () => {
     const text = `# POP-06: Guia de Instalação do Agente Verisignum\n\nConsulte o documento oficial pop_instalacao_agente_windows.md entregue no repositório para o passo a passo completo da instalação local do Agente.`;
     const blob = new Blob([text], { type: 'text/markdown' });
@@ -273,7 +282,6 @@ export default function App() {
     a.click();
   };
 
-  // NOVO: Funções Reais de Login e Cadastro
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthLoading(true);
@@ -309,14 +317,16 @@ export default function App() {
     setAuthLoading(true);
     setAuthMessage({ type: '', text: '' });
     try {
-      const res = await fetch(`https://verisignum-api.onrender.com/v1/auth/register?name=${encodeURIComponent(authName)}&email=${encodeURIComponent(authEmail)}&password=${encodeURIComponent(authPassword)}`, {
-        method: 'POST'
+      const res = await fetch(`https://verisignum-api.onrender.com/v1/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: authName, email: authEmail, password: authPassword })
       });
 
       if (res.ok) {
         setAuthMode('login');
         setAuthMessage({ type: 'success', text: 'Conta criada com sucesso! Faça login abaixo.' });
-        setAuthPassword(''); // Limpa a senha
+        setAuthPassword('');
       } else {
         const err = await res.json();
         setAuthMessage({ type: 'error', text: err.detail || 'Erro ao criar conta.' });
@@ -493,7 +503,7 @@ export default function App() {
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-[#0d1117] relative">
         <div className="max-w-6xl mx-auto">
 
-          {/* ABA DASHBOARD */}
+          {}
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -630,7 +640,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA SHIELD - RESTAURADA A INTERFACE DE UPLOAD */}
+          {}
           {activeTab === 'shield' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -652,7 +662,6 @@ export default function App() {
                         required 
                       />
                       
-                      {/* LÓGICA DE PRÉ-VISUALIZAÇÃO SHIELD */}
                       {shieldPreview ? (
                         <div className="flex flex-col items-center pointer-events-none">
                           <img src={shieldPreview} alt="Preview" className="max-h-40 rounded-lg shadow-md mb-3 object-contain border border-[#30363d]" />
@@ -715,7 +724,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA LENS - RESTAURADA A INTERFACE DE UPLOAD E LAUDO */}
+          {}
           {activeTab === 'lens' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -737,7 +746,6 @@ export default function App() {
                         required 
                       />
                       
-                      {/* LÓGICA DE PRÉ-VISUALIZAÇÃO LENS */}
                       {lensPreview ? (
                         <div className="flex flex-col items-center pointer-events-none">
                           <img src={lensPreview} alt="Preview" className="max-h-40 rounded-lg shadow-md mb-3 object-contain border border-[#30363d]" />
@@ -768,7 +776,6 @@ export default function App() {
                   </button>
                 </form>
 
-                {/* Resultado Forense */}
                 {scanResult && (
                   <div className="mt-6 p-5 bg-[#0d1117] border border-[#30363d] rounded-xl animate-in fade-in slide-in-from-bottom-2">
                     <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-b border-[#30363d] pb-2">
@@ -802,7 +809,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA ADMIN */}
+          {}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
@@ -855,7 +862,7 @@ export default function App() {
             </div>
           )}
 
-          {/* ABA API - RESTAURADOS OS BOTÕES DE DOWNLOAD DO AGENTE E MANUAL */}
+          {}
           {activeTab === 'api' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div>
@@ -865,7 +872,6 @@ export default function App() {
                 <p className="text-sm text-gray-400 mt-1">Acesso à documentação de integração, chaves de API e configuração do Model Context Protocol (MCP).</p>
               </div>
 
-              {/* API Key Box */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg p-6">
                  <div className="flex items-center justify-between mb-6">
                     <div>
@@ -893,7 +899,6 @@ export default function App() {
                 </p>
               </div>
 
-              {/* MCP Section */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
                 <div className="border-b border-[#30363d] bg-[#0d1117] p-4 flex items-center gap-2">
                     <Terminal size={18} className="text-gray-400" />
@@ -939,7 +944,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Local Agent Desktop Section (RESTAURADA E APRIMORADA) */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
                 <div className="border-b border-[#30363d] bg-[#0d1117] p-4 flex items-center gap-2">
                     <Monitor size={18} className="text-gray-400" />
