@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
-  Terminal, Key, ExternalLink, Sparkles, Loader2, Lock,
+  Terminal, Key, ExternalLink, Sparkles, Loader2, Lock, 
   FileText, LogOut, CreditCard, Menu, X, Copy, Monitor, Download, Search,
   Shield, Users, UploadCloud
 } from 'lucide-react';
@@ -32,6 +32,8 @@ interface ClientTenant {
 const RENDER_DASHBOARD_ME_URL = "https://verisignum-api.onrender.com/v1/dashboard/me";
 const RENDER_HISTORY_URL = "https://verisignum-api.onrender.com/v1/dashboard/history";
 const RENDER_ADMIN_CLIENTS = "https://verisignum-api.onrender.com/v1/admin/clients";
+const RENDER_SHIELD_URL = "https://verisignum-api.onrender.com/v1/shield/sign";
+const RENDER_LENS_URL = "https://verisignum-api.onrender.com/v1/lens/verify";
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -39,18 +41,58 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  const [history, setHistory] = useState<HistoryLog[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [moduleFilter, setModuleFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  // NOVO: Estados para a Tela de Login/Cadastro
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authName, setAuthName] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState({ type: '', text: '' });
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
-  const [adminClients, setAdminClients] = useState<ClientTenant[]>([]);
-  const [adminLoading, setAdminLoading] = useState(false);
+  // Estados dos Módulos Forenses (Restaurados)
+  const [shieldFile, setShieldFile] = useState<File | null>(null);
+  const [shieldAuthor, setShieldAuthor] = useState('');
+  const [shieldOrg, setShieldOrg] = useState('');
+  const [isShielding, setIsShielding] = useState(false);
+  const [shieldSuccess, setShieldSuccess] = useState(false);
 
-  const [copyStatus, setCopyStatus] = useState<CopyStatus>({ error: null });
-  const ADMIN_EMAIL = 'contato@verisignumdigital.com';
-  const isAdmin = clientData?.email === ADMIN_EMAIL;
+  const [lensFile, setLensFile] = useState<File | null>(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanStep, setScanStep] = useState('');
+  const [scanResult, setScanResult] = useState<any>(null);
+
+  const [shieldPreview, setShieldPreview] = useState<string | null>(null);
+  const [lensPreview, setLensPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shieldFile) {
+      setShieldPreview(null);
+      return;
+    }
+    // Se for imagem, cria uma URL local para mostrar a foto
+    if (shieldFile.type.startsWith('image/')) {
+      const objectUrl = URL.createObjectURL(shieldFile);
+      setShieldPreview(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl); // Limpa a memória quando descartado
+    } else {
+      setShieldPreview(null);
+    }
+  }, [shieldFile]);
+
+  useEffect(() => {
+    if (!lensFile) {
+      setLensPreview(null);
+      return;
+    }
+    if (lensFile.type.startsWith('image/')) {
+      const objectUrl = URL.createObjectURL(lensFile);
+      setLensPreview(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl);
+    } else {
+      setLensPreview(null);
+    }
+  }, [lensFile]);
 
   const fetchHistory = async (token: string) => {
     setHistoryLoading(true);
@@ -105,6 +147,8 @@ export default function App() {
       }
     } catch (error) {
       console.error("Erro de conexão", error);
+    } finally {
+      setIsInitialLoad(false);
     }
   };
 
@@ -112,6 +156,8 @@ export default function App() {
     const token = localStorage.getItem('access_token');
     if (token) {
       fetchDashboardData(token);
+    } else {
+      setIsInitialLoad(false);
     }
   }, []);
 
@@ -131,17 +177,247 @@ export default function App() {
     setClientData(null);
   };
 
+  // Funções de Interação dos Módulos (Restauradas)
+  const handleShieldSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shieldFile) return;
+    setIsShielding(true);
+    setShieldSuccess(false);
+
+    const formData = new FormData();
+    formData.append('file', shieldFile);
+    formData.append('author', shieldAuthor || clientData?.name || 'Autor Desconhecido');
+    formData.append('organization', shieldOrg || 'Verisignum AI');
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(RENDER_SHIELD_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `verisignum_${shieldFile.name}`;
+        a.click();
+        setShieldSuccess(true);
+        if(token) fetchHistory(token);
+      } else {
+        alert("Falha ao assinar o arquivo. Verifique se tem créditos ou se a API está online.");
+      }
+    } catch(err) {
+      console.error("Erro no Shield", err);
+    } finally {
+      setIsShielding(false);
+    }
+  };
+
+  const handleLensScan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!lensFile) return;
+    setIsScanning(true);
+    setScanResult(null);
+    setScanStep('A transferir arquivo para o laboratório forense...');
+
+    const formData = new FormData();
+    formData.append('file', lensFile);
+
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(RENDER_LENS_URL, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setScanStep('A decodificar C2PA e processar heurísticas...');
+        setTimeout(() => {
+          setScanResult(data);
+          if(token) fetchHistory(token);
+          setIsScanning(false);
+        }, 1500);
+      } else {
+        alert("Falha na auditoria. Verifique a conexão com o servidor.");
+        setIsScanning(false);
+      }
+    } catch(err) {
+      console.error("Erro no Lens", err);
+      setIsScanning(false);
+    }
+  };
+
+  // Funções de Download Mockadas/Auxiliares
+  const downloadManual = () => {
+    const text = `# POP-06: Guia de Instalação do Agente Verisignum\n\nConsulte o documento oficial pop_instalacao_agente_windows.md entregue no repositório para o passo a passo completo da instalação local do Agente.`;
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pop_instalacao_agente_windows.md';
+    a.click();
+  };
+
+  const downloadFakeExecutable = (os: string) => {
+    const text = `Este é o executável mock do Agente para ${os}. A aplicação real foi compilada via PyInstaller.`;
+    const blob = new Blob([text], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = os === 'windows' ? 'Verisignum_Agent_Windows.exe' : 'Verisignum_Agent_Mac.app';
+    a.click();
+  };
+
+  // NOVO: Funções Reais de Login e Cadastro
+  const handleLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthMessage({ type: '', text: '' });
+    try {
+      const formData = new URLSearchParams();
+      formData.append('username', authEmail);
+      formData.append('password', authPassword);
+
+      const res = await fetch("https://verisignum-api.onrender.com/v1/auth/login", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: formData
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('access_token', data.access_token);
+        fetchDashboardData(data.access_token);
+      } else {
+        const err = await res.json();
+        setAuthMessage({ type: 'error', text: err.detail || 'E-mail ou senha incorretos.' });
+      }
+    } catch (err) {
+      setAuthMessage({ type: 'error', text: 'Erro de conexão com o servidor.' });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthMessage({ type: '', text: '' });
+    try {
+      const res = await fetch(`https://verisignum-api.onrender.com/v1/auth/register?name=${encodeURIComponent(authName)}&email=${encodeURIComponent(authEmail)}&password=${encodeURIComponent(authPassword)}`, {
+        method: 'POST'
+      });
+
+      if (res.ok) {
+        setAuthMode('login');
+        setAuthMessage({ type: 'success', text: 'Conta criada com sucesso! Faça login abaixo.' });
+        setAuthPassword(''); // Limpa a senha
+      } else {
+        const err = await res.json();
+        setAuthMessage({ type: 'error', text: err.detail || 'Erro ao criar conta.' });
+      }
+    } catch (err) {
+      setAuthMessage({ type: 'error', text: 'Erro de conexão com o servidor.' });
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  if (isInitialLoad) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4">
+         <Loader2 className="animate-spin text-indigo-500" size={32} />
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4">
-        <div className="bg-[#161b22] border border-[#30363d] p-8 rounded-2xl w-full max-w-md text-center">
+        <div className="bg-[#161b22] border border-[#30363d] p-8 rounded-2xl w-full max-w-md shadow-2xl">
           <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl border border-indigo-500/20 flex items-center justify-center mx-auto mb-6">
             <Shield size={32} className="text-indigo-500" />
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Acesso Restrito</h2>
-          <p className="text-gray-400 text-sm mb-6">Inicie sessão ou crie a sua conta Verisignum para acessar a plataforma forense.</p>
-          <div className="animate-pulse flex items-center justify-center gap-2 text-indigo-400 text-sm">
-             <Loader2 className="animate-spin" size={16} /> Autenticando...
+          
+          <h2 className="text-2xl font-bold text-white mb-2 text-center">
+            {authMode === 'login' ? 'Acesso ao Portal' : 'Criar Nova Conta'}
+          </h2>
+          <p className="text-gray-400 text-sm mb-6 text-center">
+            {authMode === 'login' 
+              ? 'Inicie sessão para aceder à plataforma forense.' 
+              : 'Registe-se para proteger os seus ativos digitais.'}
+          </p>
+
+          {authMessage.text && (
+            <div className={`mb-4 p-3 rounded-lg text-sm font-semibold flex items-center gap-2 ${authMessage.type === 'error' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+              {authMessage.type === 'error' ? <AlertTriangle size={16} className="shrink-0" /> : <CheckCircle2 size={16} className="shrink-0" />}
+              {authMessage.text}
+            </div>
+          )}
+
+          <form onSubmit={authMode === 'login' ? handleLoginSubmit : handleRegisterSubmit} className="space-y-4">
+            {authMode === 'register' && (
+              <div>
+                <label className="block text-sm font-semibold text-gray-300 mb-1">Nome Completo</label>
+                <input 
+                  type="text" 
+                  required
+                  value={authName}
+                  onChange={(e) => setAuthName(e.target.value)}
+                  className="w-full bg-[#0d1117] text-white border border-[#30363d] rounded-lg px-4 py-2.5 focus:border-indigo-500 outline-none transition-colors" 
+                  placeholder="Ex: Universidade XYZ"
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-1">E-mail Corporativo</label>
+              <input 
+                type="email" 
+                required
+                value={authEmail}
+                onChange={(e) => setAuthEmail(e.target.value)}
+                className="w-full bg-[#0d1117] text-white border border-[#30363d] rounded-lg px-4 py-2.5 focus:border-indigo-500 outline-none transition-colors" 
+                placeholder="nome@empresa.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-300 mb-1">Palavra-passe</label>
+              <input 
+                type="password" 
+                required
+                value={authPassword}
+                onChange={(e) => setAuthPassword(e.target.value)}
+                className="w-full bg-[#0d1117] text-white border border-[#30363d] rounded-lg px-4 py-2.5 focus:border-indigo-500 outline-none transition-colors" 
+                placeholder="••••••••"
+              />
+            </div>
+
+            <button 
+              disabled={authLoading}
+              type="submit" 
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
+            >
+              {authLoading ? <Loader2 className="animate-spin" size={18} /> : (authMode === 'login' ? <Lock size={18} /> : <Shield size={18} />)}
+              {authLoading ? 'A processar...' : (authMode === 'login' ? 'Entrar no Sistema' : 'Registar Conta Gratuita')}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center">
+            <button 
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthMessage({ type: '', text: '' });
+                setAuthPassword('');
+              }}
+              className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors font-medium"
+            >
+              {authMode === 'login' ? 'Não tem conta? Registe-se agora' : 'Já possui conta? Iniciar Sessão'}
+            </button>
           </div>
         </div>
       </div>
@@ -208,6 +484,7 @@ export default function App() {
         </div>
       </aside>
 
+      {/* OVERLAY MOBILE */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-black/60 z-0 md:hidden" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
@@ -216,7 +493,7 @@ export default function App() {
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-[#0d1117] relative">
         <div className="max-w-6xl mx-auto">
 
-          {/* TAB: DASHBOARD (HISTÓRICO) */}
+          {/* ABA DASHBOARD */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -226,7 +503,6 @@ export default function App() {
                 </button>
               </div>
 
-              {/* CARDS DE RESUMO */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full blur-2xl pointer-events-none"></div>
@@ -245,7 +521,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* TABELA DE HISTÓRICO FILTRÁVEL */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
                 <div className="p-4 md:p-6 border-b border-[#30363d] bg-[#0d1117] flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <h3 className="text-lg font-bold text-white flex items-center gap-2">
@@ -308,7 +583,7 @@ export default function App() {
                         const matchStatus = statusFilter === 'ALL' || log.status.includes(statusFilter);
                         return matchSearch && matchMod && matchStatus;
                       }).length === 0 ? (
-                        <tr><td colSpan={4} className="p-12 text-center text-gray-500">Nenhum registro encontrado com os filtros atuais. Tente limpar a busca.</td></tr>
+                        <tr><td colSpan={4} className="p-12 text-center text-gray-500">Nenhum registro encontrado.</td></tr>
                       ) : (
                         history.filter(log => {
                           const matchSearch = log.filename.toLowerCase().includes(searchQuery.toLowerCase());
@@ -318,7 +593,7 @@ export default function App() {
                         }).map(log => (
                           <tr key={log.id} className="hover:bg-[#21262d] transition-colors">
                             <td className="p-4 text-xs font-mono text-gray-500">
-                              {new Date(log.created_at).toLocaleString('pt-BR', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}
+                              {new Date(log.created_at).toLocaleString('pt-PT', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}
                             </td>
                             <td className="p-4 font-medium text-white truncate max-w-[200px]" title={log.filename}>
                               <div className="flex items-center gap-2">
@@ -355,26 +630,92 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: SHIELD */}
+          {/* ABA SHIELD - RESTAURADA A INTERFACE DE UPLOAD */}
           {activeTab === 'shield' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                   <FileCheck className="text-indigo-500" /> VerisignumShield
                 </h2>
-                <p className="text-sm text-gray-400 mt-1">Ferramenta visual de assinatura rápida. Para lotes corporativos, utilize os nossos agentes na aba Integração B2B.</p>
+                <p className="text-sm text-gray-400 mt-1">Ferramenta visual de assinatura rápida. Injeta a malha C2PA e faz o download automático.</p>
               </div>
-              <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[300px]">
-                <div className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mb-4">
-                  <UploadCloud size={32} className="text-indigo-500" />
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">Arraste o seu ficheiro para assinar</h3>
-                <p className="text-sm text-gray-400 max-w-md">Os arquivos enviados são processados em memória volátil e deletados fisicamente do servidor de forma irreversível imediatamente após a injeção C2PA.</p>
+              
+              <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-6 shadow-lg max-w-2xl">
+                <form onSubmit={handleShieldSubmit} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">Selecione o Arquivo (Mídia)</label>
+                    <div className="relative border-2 border-dashed border-[#30363d] hover:border-indigo-500 bg-[#0d1117] rounded-xl p-8 text-center transition-colors">
+                      <input 
+                        type="file" 
+                        onChange={(e) => setShieldFile(e.target.files?.[0] || null)} 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                        required 
+                      />
+                      
+                      {/* LÓGICA DE PRÉ-VISUALIZAÇÃO SHIELD */}
+                      {shieldPreview ? (
+                        <div className="flex flex-col items-center pointer-events-none">
+                          <img src={shieldPreview} alt="Preview" className="max-h-40 rounded-lg shadow-md mb-3 object-contain border border-[#30363d]" />
+                          <p className="text-sm text-indigo-400 font-bold">{shieldFile?.name}</p>
+                          <p className="text-xs text-gray-500">{(shieldFile?.size ? (shieldFile.size / (1024 * 1024)).toFixed(2) : 0)} MB</p>
+                        </div>
+                      ) : shieldFile ? (
+                        <div className="flex flex-col items-center pointer-events-none">
+                          <div className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mb-3">
+                            <FileText className="text-indigo-500" size={32} />
+                          </div>
+                          <p className="text-sm text-indigo-400 font-bold">{shieldFile.name}</p>
+                          <p className="text-xs text-gray-500">{(shieldFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                        </div>
+                      ) : (
+                        <div className="pointer-events-none">
+                          <UploadCloud className="mx-auto text-indigo-500 mb-3" size={32} />
+                          <p className="text-sm text-gray-300 font-medium">Clique ou arraste o arquivo aqui</p>
+                          <p className="text-xs text-gray-500 mt-1">JPEG, PNG, MP4, MP3, PDF</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-300 mb-2">Autor / Signatário</label>
+                      <input 
+                        type="text" 
+                        value={shieldAuthor} 
+                        onChange={e => setShieldAuthor(e.target.value)} 
+                        className="w-full bg-[#0d1117] text-white text-sm border border-[#30363d] rounded-lg p-2.5 focus:border-indigo-500 outline-none transition-colors" 
+                        placeholder="Ex: Dr. Silva" 
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-300 mb-2">Organização</label>
+                      <input 
+                        type="text" 
+                        value={shieldOrg} 
+                        onChange={e => setShieldOrg(e.target.value)} 
+                        className="w-full bg-[#0d1117] text-white text-sm border border-[#30363d] rounded-lg p-2.5 focus:border-indigo-500 outline-none transition-colors" 
+                        placeholder="Ex: Universidade XYZ" 
+                      />
+                    </div>
+                  </div>
+
+                  <button disabled={isShielding} type="submit" className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-600/50 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2 mt-4">
+                    {isShielding ? <Loader2 className="animate-spin" size={18} /> : <FileCheck size={18} />}
+                    {isShielding ? 'A Injetar Criptografia C2PA...' : 'Assinar Criptograficamente'}
+                  </button>
+                </form>
+
+                {shieldSuccess && (
+                  <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center justify-center gap-2 text-emerald-400 text-sm font-semibold">
+                    <CheckCircle2 size={16} /> Arquivo blindado e descarregado com sucesso!
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* TAB: LENS */}
+          {/* ABA LENS - RESTAURADA A INTERFACE DE UPLOAD E LAUDO */}
           {activeTab === 'lens' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -383,17 +724,85 @@ export default function App() {
                 </h2>
                 <p className="text-sm text-gray-400 mt-1">Auditoria heurística de Deepfakes e decodificação C2PA. Submeta um arquivo suspeito para triagem.</p>
               </div>
-              <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-8 text-center flex flex-col items-center justify-center min-h-[300px]">
-                <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mb-4">
-                  <Search size={32} className="text-amber-500" />
-                </div>
-                <h3 className="text-lg font-bold text-white mb-2">Selecione o ativo digital para inspeção</h3>
-                <p className="text-sm text-gray-400 max-w-md">O Lens fará a triagem de artefactos de IA generativa e emitirá o Laudo Técnico de Conformidade.</p>
+
+              <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-6 shadow-lg max-w-2xl">
+                <form onSubmit={handleLensScan} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-300 mb-2">Evidência / Arquivo Suspeito</label>
+                    <div className="relative border-2 border-dashed border-[#30363d] hover:border-amber-500 bg-[#0d1117] rounded-xl p-8 text-center transition-colors">
+                      <input 
+                        type="file" 
+                        onChange={(e) => setLensFile(e.target.files?.[0] || null)} 
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                        required 
+                      />
+                      
+                      {/* LÓGICA DE PRÉ-VISUALIZAÇÃO LENS */}
+                      {lensPreview ? (
+                        <div className="flex flex-col items-center pointer-events-none">
+                          <img src={lensPreview} alt="Preview" className="max-h-40 rounded-lg shadow-md mb-3 object-contain border border-[#30363d]" />
+                          <p className="text-sm text-amber-400 font-bold">{lensFile?.name}</p>
+                          <p className="text-xs text-gray-500">{(lensFile?.size ? (lensFile.size / (1024 * 1024)).toFixed(2) : 0)} MB</p>
+                        </div>
+                      ) : lensFile ? (
+                        <div className="flex flex-col items-center pointer-events-none">
+                          <div className="w-16 h-16 bg-amber-500/10 rounded-full flex items-center justify-center mb-3">
+                            <FileText className="text-amber-500" size={32} />
+                          </div>
+                          <p className="text-sm text-amber-400 font-bold">{lensFile.name}</p>
+                          <p className="text-xs text-gray-500">{(lensFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                        </div>
+                      ) : (
+                        <div className="pointer-events-none">
+                          <Search className="mx-auto text-amber-500 mb-3" size={32} />
+                          <p className="text-sm text-gray-300 font-medium">Selecione o ativo digital para inspeção</p>
+                          <p className="text-xs text-gray-500 mt-1">Formatos suportados: JPEG, PNG, MP4, PDF</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <button disabled={isScanning} type="submit" className="w-full py-3 bg-amber-600 hover:bg-amber-500 disabled:bg-amber-600/50 text-white font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
+                    {isScanning ? <Loader2 className="animate-spin" size={18} /> : <Eye size={18} />}
+                    {isScanning ? scanStep : 'Auditar Arquivo no Motor Lens'}
+                  </button>
+                </form>
+
+                {/* Resultado Forense */}
+                {scanResult && (
+                  <div className="mt-6 p-5 bg-[#0d1117] border border-[#30363d] rounded-xl animate-in fade-in slide-in-from-bottom-2">
+                    <h4 className="text-white font-bold mb-4 flex items-center gap-2 border-b border-[#30363d] pb-2">
+                      <Terminal size={16} className="text-gray-400" /> Relatório Pericial Forense
+                    </h4>
+                    
+                    <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="bg-[#161b22] p-3 rounded-lg border border-[#30363d]">
+                        <p className="text-xs text-gray-500 uppercase font-bold mb-1">Status C2PA</p>
+                        <p className={`font-mono text-sm font-bold ${scanResult.has_c2pa ? 'text-emerald-400' : 'text-gray-300'}`}>
+                          {scanResult.has_c2pa ? '✅ Assinatura Encontrada' : '❌ Ausente'}
+                        </p>
+                      </div>
+                      <div className="bg-[#161b22] p-3 rounded-lg border border-[#30363d]">
+                        <p className="text-xs text-gray-500 uppercase font-bold mb-1">Score Orgânico</p>
+                        <p className={`font-mono text-lg font-bold ${scanResult.ai_analysis?.score > 50 ? 'text-emerald-400' : 'text-red-400'}`}>
+                          {scanResult.ai_analysis?.score}% Humano
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-[#161b22] p-3 rounded-lg border border-[#30363d]">
+                      <p className="text-xs text-gray-500 uppercase font-bold mb-2">Anomalias Detectadas (Matriz de Pixels):</p>
+                      <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+                        {scanResult.ai_analysis?.anomalies?.map((an: string, i: number) => <li key={i}>{an}</li>)}
+                      </ul>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
 
-          {/* TAB: ADMIN */}
+          {/* ABA ADMIN */}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
@@ -401,7 +810,7 @@ export default function App() {
                   <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <Users className="text-indigo-500" /> Gestão de Tenants (B2B)
                   </h2>
-                  <p className="text-sm text-gray-400 mt-1">Painel restrito para administração de contas e faturamento.</p>
+                  <p className="text-sm text-gray-400 mt-1">Painel restrito para administração de contas e emissão de links de pagamento Stripe.</p>
                 </div>
                 <button onClick={() => fetchAdminClients(localStorage.getItem('access_token') || '')} className="flex items-center gap-2 px-3 py-1.5 bg-[#21262d] border border-[#30363d] rounded-lg text-xs font-semibold text-gray-300 hover:text-white transition-colors">
                   <Activity size={14} /> Atualizar
@@ -413,9 +822,9 @@ export default function App() {
                   <thead className="bg-[#0d1117] border-b border-[#30363d] text-xs uppercase font-semibold">
                     <tr>
                       <th className="p-4">Instituição / Email</th>
-                      <th className="p-4">Status</th>
+                      <th className="p-4">Status & Stripe ID</th>
                       <th className="p-4">Uso Forense</th>
-                      <th className="p-4">Ações</th>
+                      <th className="p-4">Ações (Faturação)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#30363d]">
@@ -429,13 +838,13 @@ export default function App() {
                         </td>
                         <td className="p-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${client.is_active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                            {client.is_active ? '✅ Ativo' : '❌ Inativo'}
+                            {client.is_active ? '✅ Pagamento Ativo' : '❌ Inativo / Trial'}
                           </span>
                         </td>
-                        <td className="p-4 font-mono font-bold text-gray-300">{client.usage_count} processos</td>
+                        <td className="p-4 font-mono font-bold text-gray-300">{client.usage_count} processamentos</td>
                         <td className="p-4">
                           <button className="flex items-center gap-2 text-xs font-semibold text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded border border-indigo-500/20 transition-all">
-                             <CreditCard size={14} /> Faturar
+                             <CreditCard size={14} /> Emitir Fatura
                           </button>
                         </td>
                       </tr>
@@ -446,7 +855,7 @@ export default function App() {
             </div>
           )}
 
-          {/* TAB: API DEVELOPER HUB (Restaurada com todos os ícones) */}
+          {/* ABA API - RESTAURADOS OS BOTÕES DE DOWNLOAD DO AGENTE E MANUAL */}
           {activeTab === 'api' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div>
@@ -480,7 +889,7 @@ export default function App() {
               <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-lg flex items-start gap-3">
                 <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-200/80 leading-relaxed">
-                  <strong>Proteja as suas credenciais:</strong> A sua API Key dá acesso direto ao processamento forense da plataforma e ao faturamento. Nunca a exponha em repositórios públicos.
+                  <strong>Proteja as suas credenciais:</strong> A sua API Key dá acesso direto ao processamento forense e ao faturamento. Nunca a exponha em repositórios públicos.
                 </p>
               </div>
 
@@ -530,7 +939,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Local Agent Desktop Section */}
+              {/* Local Agent Desktop Section (RESTAURADA E APRIMORADA) */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
                 <div className="border-b border-[#30363d] bg-[#0d1117] p-4 flex items-center gap-2">
                     <Monitor size={18} className="text-gray-400" />
@@ -541,25 +950,34 @@ export default function App() {
                       Descarregue o nosso Agente Local para processar pastas inteiras no seu computador de forma automática.
                     </p>
                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center">
+                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center hover:border-indigo-500/50 transition-colors">
                       <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
                         <Monitor size={24} className="text-blue-400" />
                       </div>
                       <h4 className="text-white font-semibold mb-1">Windows (64-bit)</h4>
-                      <button className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors">
+                      <p className="text-xs text-gray-500 mb-6">Compatível com Windows 10 e 11.</p>
+                      <button onClick={() => downloadFakeExecutable('windows')} className="mt-auto w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors">
                         <Download size={16} /> Download .EXE
                       </button>
                     </div>
-                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center">
+                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center hover:border-indigo-500/50 transition-colors">
                       <div className="w-12 h-12 bg-gray-500/10 rounded-full flex items-center justify-center mb-4">
                         <Monitor size={24} className="text-gray-400" />
                       </div>
-                      <h4 className="text-white font-semibold mb-1">macOS</h4>
-                      <button className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 bg-[#30363d] hover:bg-gray-600 text-white text-sm font-semibold rounded-lg transition-colors">
+                      <h4 className="text-white font-semibold mb-1">macOS (Intel/Silicon)</h4>
+                      <p className="text-xs text-gray-500 mb-6">Compatível com macOS 12+.</p>
+                      <button onClick={() => downloadFakeExecutable('mac')} className="mt-auto w-full flex items-center justify-center gap-2 py-2.5 bg-[#30363d] hover:bg-gray-600 text-white text-sm font-semibold rounded-lg transition-colors">
                         <Download size={16} /> Download .APP
                       </button>
                     </div>
                   </div>
+
+                  <div className="mt-6 pt-6 border-t border-[#30363d]">
+                    <button onClick={downloadManual} className="w-full flex items-center justify-center gap-2 py-3 bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-sm font-semibold rounded-lg border border-[#30363d] transition-colors">
+                      <FileText size={18} /> Baixar Guia de Instalação do Agente (Manual em PDF/MD)
+                    </button>
+                  </div>
+
                 </div>
               </div>
 
