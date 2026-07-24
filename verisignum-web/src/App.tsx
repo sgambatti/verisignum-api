@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
-  Terminal, Key, ExternalLink, Sparkles, Loader2, Lock, AlertCircle, 
+  Terminal, Key, Sparkles, Loader2, Lock, AlertCircle, 
   FileText, LogOut, CreditCard, Check, Menu, X, Copy, Monitor, Download, Search,
   Shield, Users, UploadCloud, FileImage, FileAudio, FileVideo, File
 } from 'lucide-react';
@@ -637,7 +637,7 @@ startxref
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-[#0d1117] relative">
         <div className="max-w-6xl mx-auto">
 
-          {/* TAB: DASHBOARD (HISTÓRICO) */}
+          {}
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -779,7 +779,6 @@ startxref
             </div>
           )}
 
-          {/* TAB: SHIELD */}
           {activeTab === 'shield' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -888,7 +887,6 @@ startxref
             </div>
           )}
 
-          {/* TAB: LENS */}
           {activeTab === 'lens' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -1012,7 +1010,6 @@ startxref
             </div>
           )}
 
-          {/* TAB: ADMIN (Apenas para o Dono) */}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
@@ -1065,7 +1062,6 @@ startxref
             </div>
           )}
 
-          {/* TAB: API & AGENTES */}
           {activeTab === 'api' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div>
