@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Eye, Code, FileCheck, Activity, AlertTriangle, CheckCircle2, 
-  Terminal, Key, ExternalLink, Sparkles, Loader2, Lock, AlertCircle, 
-  FileText, LogOut, CreditCard, Check, Menu, X, Copy, Monitor, Download, Search,
+  Terminal, Key, ExternalLink, Sparkles, Loader2, Lock,
+  FileText, LogOut, CreditCard, Menu, X, Copy, Monitor, Download, Search,
   Shield, Users, UploadCloud
 } from 'lucide-react';
 
@@ -39,18 +39,15 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
-  // Estados para Histórico e Filtros
   const [history, setHistory] = useState<HistoryLog[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [moduleFilter, setModuleFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
-  // Estados para Admin
   const [adminClients, setAdminClients] = useState<ClientTenant[]>([]);
   const [adminLoading, setAdminLoading] = useState(false);
 
-  // Estados para cópia e UI
   const [copyStatus, setCopyStatus] = useState<CopyStatus>({ error: null });
   const ADMIN_EMAIL = 'contato@verisignumdigital.com';
   const isAdmin = clientData?.email === ADMIN_EMAIL;
@@ -211,7 +208,6 @@ export default function App() {
         </div>
       </aside>
 
-      {/* OVERLAY MOBILE */}
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-black/60 z-0 md:hidden" onClick={() => setIsMobileMenuOpen(false)}></div>
       )}
@@ -220,7 +216,7 @@ export default function App() {
       <main className="flex-1 h-screen overflow-y-auto p-4 md:p-8 bg-[#0d1117] relative">
         <div className="max-w-6xl mx-auto">
 
-          {}
+          {/* TAB: DASHBOARD (HISTÓRICO) */}
           {activeTab === 'dashboard' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -230,7 +226,7 @@ export default function App() {
                 </button>
               </div>
 
-              {/* CARDS DE RESUMO (Calculados dinamicamente) */}
+              {/* CARDS DE RESUMO */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full blur-2xl pointer-events-none"></div>
@@ -257,7 +253,6 @@ export default function App() {
                   </h3>
                   
                   <div className="flex flex-col md:flex-row gap-3 w-full md:w-auto">
-                    {/* Campo de Busca */}
                     <div className="relative w-full md:w-64">
                       <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                          <Search size={14} className="text-gray-500" />
@@ -270,7 +265,6 @@ export default function App() {
                         className="w-full bg-[#161b22] border border-[#30363d] rounded-lg pl-9 pr-3 py-2 text-xs text-white focus:border-indigo-500 outline-none transition-colors"
                       />
                     </div>
-                    {/* Filtro de Módulo */}
                     <select 
                       value={moduleFilter} 
                       onChange={(e) => setModuleFilter(e.target.value)}
@@ -280,7 +274,6 @@ export default function App() {
                       <option value="SHIELD">🛡️ Shield (C2PA)</option>
                       <option value="LENS">👁️ Lens (Forense)</option>
                     </select>
-                    {/* Filtro de Status */}
                     <select 
                       value={statusFilter} 
                       onChange={(e) => setStatusFilter(e.target.value)}
@@ -325,7 +318,7 @@ export default function App() {
                         }).map(log => (
                           <tr key={log.id} className="hover:bg-[#21262d] transition-colors">
                             <td className="p-4 text-xs font-mono text-gray-500">
-                              {new Date(log.created_at).toLocaleString('pt-PT', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}
+                              {new Date(log.created_at).toLocaleString('pt-BR', {day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit'})}
                             </td>
                             <td className="p-4 font-medium text-white truncate max-w-[200px]" title={log.filename}>
                               <div className="flex items-center gap-2">
@@ -362,7 +355,7 @@ export default function App() {
             </div>
           )}
 
-          {}
+          {/* TAB: SHIELD */}
           {activeTab === 'shield' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -381,7 +374,7 @@ export default function App() {
             </div>
           )}
 
-          {}
+          {/* TAB: LENS */}
           {activeTab === 'lens' && (
             <div className="space-y-6 animate-in fade-in duration-300">
                <div>
@@ -400,7 +393,7 @@ export default function App() {
             </div>
           )}
 
-          {}
+          {/* TAB: ADMIN */}
           {activeTab === 'admin' && isAdmin && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div className="flex items-center justify-between">
@@ -408,7 +401,7 @@ export default function App() {
                   <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                     <Users className="text-indigo-500" /> Gestão de Tenants (B2B)
                   </h2>
-                  <p className="text-sm text-gray-400 mt-1">Painel restrito para administração de contas e emissão de links de pagamento Stripe.</p>
+                  <p className="text-sm text-gray-400 mt-1">Painel restrito para administração de contas e faturamento.</p>
                 </div>
                 <button onClick={() => fetchAdminClients(localStorage.getItem('access_token') || '')} className="flex items-center gap-2 px-3 py-1.5 bg-[#21262d] border border-[#30363d] rounded-lg text-xs font-semibold text-gray-300 hover:text-white transition-colors">
                   <Activity size={14} /> Atualizar
@@ -420,9 +413,9 @@ export default function App() {
                   <thead className="bg-[#0d1117] border-b border-[#30363d] text-xs uppercase font-semibold">
                     <tr>
                       <th className="p-4">Instituição / Email</th>
-                      <th className="p-4">Status & Stripe ID</th>
+                      <th className="p-4">Status</th>
                       <th className="p-4">Uso Forense</th>
-                      <th className="p-4">Ações (Faturação)</th>
+                      <th className="p-4">Ações</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#30363d]">
@@ -436,13 +429,13 @@ export default function App() {
                         </td>
                         <td className="p-4">
                           <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold ${client.is_active ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>
-                            {client.is_active ? '✅ Pagamento Ativo' : '❌ Inativo / Trial'}
+                            {client.is_active ? '✅ Ativo' : '❌ Inativo'}
                           </span>
                         </td>
-                        <td className="p-4 font-mono font-bold text-gray-300">{client.usage_count} processamentos</td>
+                        <td className="p-4 font-mono font-bold text-gray-300">{client.usage_count} processos</td>
                         <td className="p-4">
                           <button className="flex items-center gap-2 text-xs font-semibold text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 px-3 py-1.5 rounded border border-indigo-500/20 transition-all">
-                             <CreditCard size={14} /> Emitir Fatura
+                             <CreditCard size={14} /> Faturar
                           </button>
                         </td>
                       </tr>
@@ -453,16 +446,17 @@ export default function App() {
             </div>
           )}
 
-          {}
+          {/* TAB: API DEVELOPER HUB (Restaurada com todos os ícones) */}
           {activeTab === 'api' && (
             <div className="space-y-6 animate-in fade-in duration-300">
               <div>
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
                   <Code className="text-indigo-500" /> API Developer Hub
                 </h2>
-                <p className="text-sm text-gray-400 mt-1">Acesso à documentação de integração, chaves de API e Agentes.</p>
+                <p className="text-sm text-gray-400 mt-1">Acesso à documentação de integração, chaves de API e configuração do Model Context Protocol (MCP).</p>
               </div>
 
+              {/* API Key Box */}
               <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg p-6">
                  <div className="flex items-center justify-between mb-6">
                     <div>
@@ -486,9 +480,89 @@ export default function App() {
               <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-lg flex items-start gap-3">
                 <AlertTriangle size={18} className="text-amber-500 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-200/80 leading-relaxed">
-                  <strong>Proteja as suas credenciais:</strong> A sua API Key dá acesso direto ao processamento forense da plataforma e ao faturamento (Metered Billing). Nunca a exponha em código Front-end ou em repositórios públicos como o GitHub.
+                  <strong>Proteja as suas credenciais:</strong> A sua API Key dá acesso direto ao processamento forense da plataforma e ao faturamento. Nunca a exponha em repositórios públicos.
                 </p>
               </div>
+
+              {/* MCP Section */}
+              <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
+                <div className="border-b border-[#30363d] bg-[#0d1117] p-4 flex items-center gap-2">
+                    <Terminal size={18} className="text-gray-400" />
+                    <span className="text-sm font-mono font-semibold text-gray-300">Integração MCP (Model Context Protocol)</span>
+                </div>
+                
+                <div className="p-6 md:p-8 space-y-6">
+                  <div>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-indigo-500/20 to-blue-500/20 border border-indigo-500/30 text-indigo-300 text-xs font-mono font-semibold mb-4">
+                      <Sparkles size={12} /> 100% MCP READY
+                    </div>
+                    <p className="text-sm text-gray-400 leading-relaxed max-w-3xl">
+                      Integre a inteligência forense da Verisignum diretamente aos seus Agentes de Inteligência Artificial internos e ao Claude Desktop.
+                    </p>
+                  </div>
+                  
+                  <div className="bg-[#0d1117] p-4 rounded-xl border border-[#30363d] text-sm font-mono text-gray-300 relative group overflow-x-auto">
+                    <pre>
+{`{
+  "mcpServers": {
+    "verisignum": {
+      "command": "uv",
+      "args": ["run", "--with", "mcp", "--with", "httpx", "/caminho/mcp_server.py"],
+      "env": { "VERISIGNUM_API_KEY": "${clientData?.api_key || 'SUA_CHAVE_AQUI'}" }
+    }
+  }
+}`}
+                    </pre>
+                    <button 
+                          onClick={() => safeCopyToClipboard(`{"mcpServers": {"verisignum": {"command": "uv", "args": ["run", "--with", "mcp", "--with", "httpx", "/caminho/mcp_server.py"], "env": { "VERISIGNUM_API_KEY": "${clientData?.api_key || ''}" }}}}`, 'mcp')}
+                          className="absolute top-3 right-3 p-2 bg-[#21262d] text-gray-400 hover:text-white rounded-md border border-[#30363d] opacity-0 group-hover:opacity-100 transition-all shadow-lg"
+                        >
+                          <Copy size={16} />
+                    </button>
+                  </div>
+                  
+                  <div className="pt-4 flex">
+                     <button className="flex items-center gap-2 px-5 py-2.5 bg-[#21262d] hover:bg-[#30363d] text-white text-sm font-semibold rounded-lg border border-[#30363d] transition-all shadow-sm">
+                       <ExternalLink size={16} className="text-gray-400" />
+                       Descarregar mcp_server.py
+                     </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Local Agent Desktop Section */}
+              <div className="bg-[#161b22] border border-[#30363d] rounded-xl overflow-hidden shadow-lg mt-8">
+                <div className="border-b border-[#30363d] bg-[#0d1117] p-4 flex items-center gap-2">
+                    <Monitor size={18} className="text-gray-400" />
+                    <span className="text-sm font-mono font-semibold text-gray-300">Verisignum Local Agent (Desktop)</span>
+                </div>
+                <div className="p-6 md:p-8">
+                   <p className="text-sm text-gray-400 leading-relaxed mb-6">
+                      Descarregue o nosso Agente Local para processar pastas inteiras no seu computador de forma automática.
+                    </p>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center">
+                      <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4">
+                        <Monitor size={24} className="text-blue-400" />
+                      </div>
+                      <h4 className="text-white font-semibold mb-1">Windows (64-bit)</h4>
+                      <button className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors">
+                        <Download size={16} /> Download .EXE
+                      </button>
+                    </div>
+                    <div className="bg-[#0d1117] border border-[#30363d] p-6 rounded-xl flex flex-col items-center text-center">
+                      <div className="w-12 h-12 bg-gray-500/10 rounded-full flex items-center justify-center mb-4">
+                        <Monitor size={24} className="text-gray-400" />
+                      </div>
+                      <h4 className="text-white font-semibold mb-1">macOS</h4>
+                      <button className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 bg-[#30363d] hover:bg-gray-600 text-white text-sm font-semibold rounded-lg transition-colors">
+                        <Download size={16} /> Download .APP
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
             </div>
           )}
         </div>
