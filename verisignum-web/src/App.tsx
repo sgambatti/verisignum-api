@@ -172,6 +172,13 @@ export default function App() {
     }
   }, []);
 
+  useEffect(() => {
+    const token = localStorage.getItem('access_token');
+    if (activeTab === 'dashboard' && token && isAuthenticated) {
+      fetchDashboardData(token);
+    }
+  }, [activeTab, isAuthenticated]);
+
   const safeCopyToClipboard = async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -215,7 +222,7 @@ export default function App() {
         a.download = `verisignum_${shieldFile.name}`;
         a.click();
         setShieldSuccess(true);
-        if(token) fetchHistory(token);
+        if(token) fetchDashboardData(token);
       } else {
         alert("Falha ao assinar o arquivo. Verifique se tem créditos ou se a API está online.");
       }
@@ -249,7 +256,7 @@ export default function App() {
         setScanStep('A decodificar C2PA e processar heurísticas...');
         setTimeout(() => {
           setScanResult(data);
-          if(token) fetchHistory(token);
+          if(token) fetchDashboardData(token);
           setIsScanning(false);
         }, 1500);
       } else {
@@ -263,13 +270,23 @@ export default function App() {
   };
 
   const downloadManual = () => {
-    const text = `# POP-06: Guia de Instalação do Agente Verisignum\n\nConsulte o documento oficial pop_instalacao_agente_windows.md entregue no repositório para o passo a passo completo da instalação local do Agente.`;
-    const blob = new Blob([text], { type: 'text/markdown' });
+    // PDF Válido em Base64 (Evita erro de ficheiro corrompido ao abrir no Adobe/Chrome)
+    const pdfBase64 = "JVBERi0xLjQKMSAwIG9iaiA8PC9UeXBlIC9DYXRhbG9nIC9QYWdlcyAyIDAgUj4+IGVuZG9iagoyIDAgb2JqIDw8L1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDE+PiBlbmRvYmoKMyAwIG9iaiA8PC9UeXBlIC9QYWdlIC9QYXJlbnQgMiAwIFIgL01lZGlhQm94IFswIDAgNjEyIDc5Ml0gL0NvbnRlbnRzIDQgMCBSIC9SZXNvdXJjZXMgPDwvRm9udCA8PC9GMSA1IDAgUj4+Pj4+PiBlbmRvYmoKNCAwIG9iaiA8PC9MZW5ndGggNzc+PiBzdHJlYW0KQlQgL0YxIDI0IFRmIDEwMCA3MDAgVGQgKEd1aWEgZGUgSW5zdGFsYWNhbyBWZXJpc2lnbnVtKSBUaiBFVAplbmRzdHJlYW0gZW5kb2JqCjUgMCBvYmogPDwvVHlwZSAvRm9udCAvU3VidHlwZSAvVHlwZTEgL0Jhc2VGb250IC9IZWx2ZXRpY2E+PiBlbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjI0IDAwMDAwIG4gCjAwMDAwMDAzNTIgMDAwMDAgbiAKdHJhaWxlciA8PC9TaXplIDYgL1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKNDQwCiUlRU9GCg==";
+    
+    const byteCharacters = atob(pdfBase64);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'application/pdf' });
+    
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'pop_instalacao_agente_windows.md';
+    a.download = 'Guia_Instalacao_Agente_Verisignum.pdf';
     a.click();
+    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
   };
 
   const downloadFakeExecutable = (os: string) => {
@@ -517,7 +534,7 @@ export default function App() {
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-bl-full blur-2xl pointer-events-none"></div>
                   <span className="text-xs text-gray-400 font-semibold uppercase tracking-wider relative z-10">Total de Verificações</span>
-                  <div className="text-3xl font-extrabold text-white relative z-10">{history.length > 0 ? history.length : (clientData?.usage_count || 0)}</div>
+                  <div className="text-3xl font-extrabold text-white relative z-10">{clientData?.usage_count || 0}</div>
                 </div>
                 <div className="bg-[#161b22] border border-[#30363d] p-5 rounded-xl space-y-2 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/10 rounded-bl-full blur-2xl pointer-events-none"></div>
@@ -977,11 +994,10 @@ export default function App() {
                   </div>
 
                   <div className="mt-6 pt-6 border-t border-[#30363d]">
-                    <button onClick={downloadManual} className="w-full flex items-center justify-center gap-2 py-3 bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-sm font-semibold rounded-lg border border-[#30363d] transition-colors">
-                      <FileText size={18} /> Baixar Guia de Instalação do Agente (Manual em PDF/MD)
+                    <button onClick={downloadManual} className="w-full flex items-center justify-center gap-2 py-3 bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-sm font-semibold rounded-lg border border-[#30363d] transition-colors shadow-sm">
+                      <FileText size={18} className="text-gray-400" /> Baixar Guia de Instalação do Agente (.PDF)
                     </button>
                   </div>
-
                 </div>
               </div>
 
