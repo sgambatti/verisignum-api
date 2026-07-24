@@ -25,11 +25,10 @@ from jose import JWTError, jwt
 
 load_dotenv()
 
-# --- 1. CONFIGURAÇÕES GERAIS E LOGGING ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="Verisignum API Master", version="3.3.0")
+app = FastAPI(title="Verisignum API Master", version="3.4.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -44,7 +43,6 @@ OUTPUT_DIR = "verisignum_output"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# --- 2. CONFIGURAÇÕES DE SEGURANÇA (JWT & BCRYPT) ---
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440 
@@ -52,12 +50,10 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 1440
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/v1/auth/login")
 
-# --- 3. CONFIGURAÇÕES DE E-MAIL E STRIPE ---
 resend.api_key = os.getenv("RESEND_API_KEY")
 stripe.api_key = os.getenv("STRIPE_SECRET_KEY")
 ENDPOINT_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 
-# --- 4. CONFIGURAÇÃO DA BASE DE DADOS ---
 DATABASE_URL = os.getenv("DATABASE_URL")
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
@@ -82,6 +78,16 @@ class Client(Base):
     reset_token = Column(String, nullable=True, index=True)
     reset_token_expires = Column(DateTime, nullable=True)
 
+class AssetLog(Base):
+    __tablename__ = "asset_logs"
+    id = Column(Integer, primary_key=True, index=True)
+    client_id = Column(Integer, index=True)
+    filename = Column(String)
+    module = Column(String) # 'SHIELD' (Assinatura) ou 'LENS' (Auditoria)
+    status = Column(String) # 'Assinado Criptograficamente', 'Aprovado', 'Quarentena'
+    score = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
 Base.metadata.create_all(bind=engine)
 
 def get_db():
@@ -91,7 +97,6 @@ def get_db():
     finally:
         db.close()
 
-# --- 5. UTILITÁRIOS DE AUTENTICAÇÃO HÍBRIDA ---
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
@@ -140,10 +145,6 @@ def get_admin_client(current_client: Client = Depends(get_current_client)):
     if current_client.email != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Acesso restrito.")
     return current_client
-
-# ==========================================
-# ROTAS DE AUTENTICAÇÃO, REGISTRO E RESET
-# ==========================================
 
 @app.post("/v1/auth/register", status_code=201)
 def register_client(name: str, email: str, password: str, db: Session = Depends(get_db)):
@@ -201,7 +202,6 @@ def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db:
 
 @app.get("/v1/dashboard/me")
 def read_users_me(current_client: Client = Depends(get_current_client)):
-    # Devolvido ao estado original exato que o React espera para liberar o acesso.
     return {
         "id": current_client.id,
         "name": current_client.name,
@@ -214,10 +214,6 @@ def read_users_me(current_client: Client = Depends(get_current_client)):
 @app.get("/v1/admin/clients")
 def get_all_clients(admin: Client = Depends(get_admin_client), db: Session = Depends(get_db)):
     return db.query(Client).all()
-
-# ==========================================
-# ROTAS DE BILLING & CORE (SHIELD / LENS)
-# ==========================================
 
 class TrialRequest(BaseModel): tenant_id: str
 class CheckoutRequest(BaseModel): tenant_id: str; price_id_fixo: str; price_id_variavel: str
@@ -296,6 +292,16 @@ async def assinar_midia(
         cmd = ["c2patool", caminho_entrada, "-m", caminho_manifesto, "-o", caminho_saida, "--force"]
         subprocess.run(cmd, capture_output=True, text=True)
         if os.path.exists(caminho_manifesto): os.remove(caminho_manifesto)
+        
+        novo_log = AssetLog(
+            client_id=current_client.id, 
+            filename=nome_arquivo_original, 
+            module="SHIELD", 
+            status="Assinado Criptograficamente",
+            score=100
+        )
+        db.add(novo_log)
+        
         current_client.usage_count += 1
         db.commit()
         return FileResponse(path=caminho_saida, media_type=file.content_type, filename=f"verisignum_{nome_arquivo_original}")
@@ -325,6 +331,17 @@ async def verificar_midia(
         anomalies = ["Possível IA."] if is_ai else ["Matriz natural."]
 
         if has_verisignum: anomalies.insert(0, f"Selo Verisignum Autêntico: Autor '{author_name}'.")
+        
+        status_lens = "Aprovado (Transparente)" if has_verisignum else ("Quarentena (Fraude)" if is_ai else "Aprovado (Orgânico)")
+        novo_log = AssetLog(
+            client_id=current_client.id, 
+            filename=file.filename, 
+            module="LENS", 
+            status=status_lens, 
+            score=100 if has_verisignum else final_score
+        )
+        db.add(novo_log)
+        
         current_client.usage_count += 1
         db.commit()
         return {"has_verisignum": has_verisignum, "ai_analysis": {"score": 100 if has_verisignum else final_score, "is_ai": is_ai, "anomalies": anomalies}}
@@ -334,12 +351,30 @@ async def verificar_midia(
 @app.delete("/v1/admin/reset-database", tags=["Admin (Testes)"])
 def reset_database(db: Session = Depends(get_db)):
     """
-    [DANGER ZONE] Apaga TODOS os registos da base de dados, incluindo o administrador.
+    [DANGER ZONE - APAGAR TUDO] 
+    Apaga absolutamente TODOS os registos da base de dados, sem exceções.
     """
     try:
         db.query(Client).delete()
         db.commit()
-        return {"status": "sucesso", "message": "Base de dados totalmente limpa. Nenhum utilizador foi preservado."}
+        return {"status": "sucesso", "message": "Base de dados totalmente limpa. TODOS os utilizadores foram apagados."}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Erro: {str(e)}")
+
+@app.get("/v1/dashboard/history")
+def get_asset_history(current_client: Client = Depends(get_current_client), db: Session = Depends(get_db)):
+    """Devolve os últimos 50 arquivos processados pela instituição para exibição no Dashboard Web."""
+    logs = db.query(AssetLog).filter(AssetLog.client_id == current_client.id).order_by(AssetLog.created_at.desc()).limit(50).all()
+    
+    return [
+        {
+            "id": log.id, 
+            "filename": log.filename, 
+            "module": log.module, 
+            "status": log.status, 
+            "score": log.score, 
+            "created_at": log.created_at.isoformat()
+        } 
+        for log in logs
+    ]
