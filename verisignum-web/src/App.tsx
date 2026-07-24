@@ -184,9 +184,6 @@ export default function App() {
     setAuthLoading(true);
     try {
       const url = new URL('https://verisignum-api.onrender.com/v1/auth/register');
-      // Passando as variáveis via URL (Query Params) se a API estiver configurada assim
-      // Ou via Body (JSON) se a API esperar JSON. Ajustaremos conforme a sua API Master.
-      // O seu api_verisignum.py anterior usa query params para o register.
       url.searchParams.append('name', authForm.name);
       url.searchParams.append('email', authForm.email);
       url.searchParams.append('password', authForm.password);
@@ -234,7 +231,6 @@ export default function App() {
 
   const downloadManual = () => {
     // Gerador de PDF Nativo via JavaScript (Puro)
-    // Isso cria um documento válido e evita o erro do PDF em branco
     const pdfContent = `
 %PDF-1.4
 1 0 obj
@@ -305,7 +301,6 @@ startxref
     return <File size={40} className="text-gray-400" />;
   };
 
-  // Preview de Arquivos para o Shield
   const handleShieldFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -359,7 +354,6 @@ startxref
       setAuthor('');
       setOrganization('');
       
-      // Sincroniza dados e recarrega os totais
       fetchDashboardData(token);
     } catch (err: any) {
       console.error(err);
@@ -369,7 +363,6 @@ startxref
     }
   };
 
-  // Preview de Arquivos para o Lens
   const handleLensFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
@@ -428,7 +421,6 @@ startxref
         anomalies: aiAnalysis.anomalies || (hasC2PA ? ['Origem Segura'] : ['Origem não rastreável'])
       });
 
-      // Sincroniza dados
       fetchDashboardData(token);
     } catch (err: any) {
       console.error(err);
@@ -442,7 +434,6 @@ startxref
     return (
       <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4">
         <div className="bg-[#161b22] border border-[#30363d] p-8 rounded-2xl w-full max-w-4xl shadow-2xl relative overflow-hidden">
-          {/* Elementos visuais de fundo */}
           <div className="absolute top-[-50px] left-[-50px] w-32 h-32 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none"></div>
           <div className="absolute bottom-[-50px] right-[-50px] w-32 h-32 bg-emerald-500/20 rounded-full blur-3xl pointer-events-none"></div>
           
